@@ -8,8 +8,9 @@
 **검토 환경** — macOS · Chromium 기반 미리보기 창 · 로컬 정적 서버
 `http://127.0.0.1:4173/Deliverable/folio/` · Node v26.7.0
 
-> 이 문서는 **자체 검토**입니다. 지시서 4장 11단계에서 멈췄고 배포는 하지
-> 않았습니다. Cowork 독립 검토 통과 후에만 7장 배포로 갑니다.
+> 이 문서는 **자체 검토**(1~5장)에 **독립 검토 결과**(6장)와 **배포 기록**
+> (8장)을 이어 붙인 것입니다. 4장 11단계에서 한 번 멈춰 독립 검토를 받았고,
+> 통과 후 2026-08-12에 배포했습니다.
 
 ---
 
@@ -293,3 +294,60 @@ DOMParser 로 만든 **분리 문서**에만 작용해 `srcdoc` 문자열로 나
 ## 7. 다음 단계
 
 독립 검토를 통과했으므로 **지시서 7장의 배포로 진행합니다.**
+
+---
+
+## 8. 배포 기록 (2026-08-12)
+
+지시서 7장 순서대로 진행했습니다. **vault 은퇴는 하지 않았습니다** (7장 5번 —
+folio 실기기 확인 후 사용자 지시가 있을 때만).
+
+| # | 단계 | 결과 |
+|---|---|---|
+| 0 | Cowork 독립 검토 통과 | 6장 |
+| 1 | `jennie-verse/folio` (Public) | 이미 비어 있는 상태로 존재해 그대로 사용 — 덮어쓴 것 없음 |
+| 2 | 첫 커밋과 push | `72cfdb6` · 269파일 (vendor 204) |
+| 3 | GitHub Pages 활성화 | `main` 브랜치 `/` 루트 · `https` 강제 |
+| 4 | 배포 URL 확인 | `https://jennie-verse.github.io/folio/` — 200 |
+| 5 | `Deliverable/folio/` → `Published/folio/` 이동 | 완료 (git 이력 포함) |
+
+### 8-1. 배포 자산 확인 (실제 URL)
+
+| 확인 | 결과 |
+|---|---|
+| 앱 셸 (`index.html` `sw.js` `manifest.webmanifest` `preview-host.html` `app.css`) | 전부 200, MIME 정상 |
+| Lexend woff2 | 200 `font/woff2` |
+| PDF.js 코어·워커 | 200 `text/javascript` |
+| 한국어 CMap · standard_fonts · wasm · iccs | 200 (`application/octet-stream` · `x-font-type1` · `application/wasm` · `vnd.iccprofile`) |
+| **`pdf.sandbox.*` · `quickjs-eval.*` · `*.map`** | **404 — 배포되지 않음** |
+| `../shared/v1/sync.js` | 200 (하위 경로에서 정상 해석) |
+
+### 8-2. 배포된 앱 실동작
+
+| 확인 | 결과 |
+|---|---|
+| 첫 실행 · 문서 3건 반입 (한글 CSV·CP949 텍스트·Markdown) | 정상 |
+| CP949 자동 판정 | 정상 (`CP949` 표기) |
+| Markdown 안의 `<script>` | 제거됨 |
+| **콘솔 오류 · CSP 위반** | **각각 0건** |
+| 빌드 표기 | `Build 2026.08.12-init1` |
+| Service Worker 등록 | 1건 |
+| 셸 캐시 | `folio-shell-2026.08.12-init1` · 65개 |
+| └ 한국어 CMap 프리캐시 | **24개 전부** |
+| └ `../shared/v1/sync.js` | 선택 캐시로 들어감 (설치는 이것과 무관하게 성공) |
+| └ PDF.js 코어 | 프리캐시 안 함 — 설계대로 첫 PDF에서 받음 |
+
+### 8-3. `Published/folio/` 와 배포 실물 일치
+
+`Published/folio/` 의 `HEAD` 와 `origin/main` 이 같은 커밋이고, 작업 트리에
+변경 없음. `index.html` `sw.js` `src/version.js` `src/handlers/html.js`
+`assets/app.css` 의 SHA-256 앞자리가 배포 URL에서 받은 바이트와 일치합니다.
+
+> 이 8장을 추가하면서 커밋이 하나 늘었습니다. 지시서 7장 4번(“`Published/folio/`
+> 는 배포 실물과 항상 같아야 합니다”)에 따라 **그 자리에서 고치고 다시
+> 배포**했으므로, 최종 상태에서도 둘은 같습니다.
+
+### 8-4. 남은 일
+
+4장 Pending 17건은 그대로입니다. 특히 1~3번(Run 실제 실행·외부 요청 0건·Read
+재확인)은 이제 **실기기에서 배포 URL로 바로 확인**할 수 있습니다.
