@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" onload="window.parent.__svgRan=true;window.__svgRan=true">
+  <script type="application/ecmascript">window.__svgScriptRan = true;</script>
+  <rect width="200" height="120" fill="#B9D8EE"/>
+  <text x="12" y="66" font-size="14">svg with onload</text>
+</svg>

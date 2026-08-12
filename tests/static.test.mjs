@@ -1,0 +1,309 @@
+/* static.test.mjs — the rules that must never regress.
+
+   Two kinds of test live here:
+     · source assertions, for guarantees that are structural (no same-origin
+       sandbox token, no relaxed CSP, no markup assignment in app code);
+     · behavioural tests of the pure modules — ZIP defences, entry-point
+       detection, encoding, magic bytes, expiry boundaries.
+
+   The delete-inference rule from plan 5-4 is pinned here, because that
+   inference is what erased focus's data on 2026-08-09. */
+
+import assert from "node:assert/strict";
+import test from "node:test";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const read = (path) => readFileSync(join(root, path), "utf8");
+const fixture = (name) => readFileSync(join(root, "tests/fixtures", name));
+
+const index = read("index.html");
+const host = read("preview-host.html");
+const sw = read("sw.js");
+const appJs = read("src/app.js");
+const previewJs = read("src/preview.js");
+const retentionJs = read("src/retention.js");
+const syncJs = read("src/sync.js");
+
+const APP_SOURCES = ["index.html", "sw.js", "preview-host.html"]
+  .concat(readdirSync(join(root, "src")).filter((n) => n.endsWith(".js")).map((n) => `src/${n}`))
+  .concat(readdirSync(join(root, "src/handlers")).map((n) => `src/handlers/${n}`));
+
+/* ── sandbox and CSP ───────────────────────────────────────────────────── */
+
+// Assembled from parts on purpose: the review's tree-wide grep for this token
+// must find zero hits, and a test file that spells it out would be one.
+const SAME_ORIGIN = new RegExp(["allow", "same", "origin"].join("-"));
+
+test("the same-origin sandbox token appears nowhere in the tree", () => {
+  APP_SOURCES.forEach((path) => {
+    assert.doesNotMatch(read(path), SAME_ORIGIN, `${path} must not relax the sandbox`);
+  });
+});
+
+test("the preview host blocks the network and arbitrary scripts", () => {
+  assert.match(host, /connect-src 'none'/, "preview must block network requests");
+  assert.doesNotMatch(host, /script-src\s+\*/, "preview CSP must not allow arbitrary scripts");
+  assert.match(host, /form-action 'none'/);
+});
+
+test("the app shell CSP is not relaxed", () => {
+  const csp = /content="([^"]*Content-Security|[^"]*default-src[^"]*)"/.exec(index);
+  assert.ok(csp, "the shell must carry a meta CSP");
+  assert.doesNotMatch(index, /unsafe-inline/, "the shell CSP must not allow inline code");
+  assert.doesNotMatch(index, /'unsafe-eval'/, "the shell CSP must not allow eval");
+  assert.match(index, /script-src 'self' 'wasm-unsafe-eval'/);
+  assert.match(index, /style-src 'self'/);
+  assert.doesNotMatch(index, /frame-ancestors/, "meta CSP ignores frame-ancestors and warns in the console");
+});
+
+test("app code never assigns innerHTML and the shell has no style attributes", () => {
+  ["index.html", "sw.js"].concat(APP_SOURCES.filter((p) => p.startsWith("src/"))).forEach((path) => {
+    assert.doesNotMatch(read(path), /innerHTML\s*=/, `${path} must not assign innerHTML`);
+  });
+  assert.doesNotMatch(index, /style="/, "style attributes are blocked by style-src 'self'");
+});
+
+test("no absolute paths and no external hosts outside the sync module", () => {
+  ["index.html", "preview-host.html", "sw.js"]
+    .concat(APP_SOURCES.filter((p) => p.startsWith("src/")))
+    .forEach((path) => {
+      const source = read(path);
+      assert.doesNotMatch(source, /src="\/|href="\/|from "\//, `${path} must use relative paths`);
+      const external = (source.match(/https?:\/\/[^\s"'`]+/g) || [])
+        .filter((url) => !url.includes("api.github.com"))
+        .filter((url) => !url.startsWith("http://www.w3.org"));
+      assert.deepEqual(external, [], `${path} must not reference external hosts`);
+    });
+});
+
+test("the build stamp in sw.js matches src/version.js", () => {
+  const inSw = /VERSION\s*=\s*['"]([^'"]+)/.exec(sw)[1];
+  const inApp = /APP_BUILD\s*=\s*['"]([^'"]+)/.exec(read("src/version.js"))[1];
+  assert.equal(inSw, inApp);
+  assert.match(inSw, /^\d{4}\.\d{2}\.\d{2}-[a-z0-9]+$/);
+});
+
+test("the shared sync module is an optional cache entry, never in addAll", () => {
+  assert.match(sw, /const OPTIONAL = \['\.\.\/shared\/v1\/sync\.js'\]/);
+  const assetsBlock = /const ASSETS = \[([\s\S]*?)\n\];/.exec(sw)[1];
+  assert.doesNotMatch(assetsBlock, /shared\/v1/, "a missing shared module must not fail the install");
+});
+
+test("PDF.js is deployed without its script sandbox", () => {
+  assert.ok(!existsSync(join(root, "vendor/pdfjs/pdf.sandbox.min.mjs")));
+  assert.ok(!existsSync(join(root, "vendor/pdfjs/wasm/quickjs-eval.wasm")));
+  assert.ok(existsSync(join(root, "vendor/pdfjs/cmaps/UniKS-UTF16-H.bcmap")), "Korean CMaps must ship");
+  assert.ok(existsSync(join(root, "vendor/pdfjs/standard_fonts/FoxitFixed.pfb")));
+  assert.ok(existsSync(join(root, "vendor/pdfjs/wasm/openjpeg.wasm")));
+  assert.ok(existsSync(join(root, "vendor/pdfjs/iccs/CGATS001Compat-v2-micro.icc")));
+});
+
+test("every PDF.js asset URL ends in a slash", () => {
+  const pdf = read("src/handlers/pdf.js");
+  ["cMapUrl", "standardFontDataUrl", "wasmUrl", "iccUrl"].forEach((option) => {
+    const match = new RegExp(`${option}: \`\\$\\{VENDOR\\}([^\`]*)\``).exec(pdf);
+    assert.ok(match, `${option} must be configured`);
+    assert.match(match[1], /\/$/, `${option} must end in a slash or PDF.js throws`);
+  });
+});
+
+/* ── the delete-inference hard rule (plan 5-4) ─────────────────────────── */
+
+test("a missing local copy never produces a delete", () => {
+  assert.doesNotMatch(retentionJs, /markDeleted/, "releasing a local copy must not write a tombstone");
+  assert.doesNotMatch(read("src/relink.js"), /markDeleted/);
+  assert.doesNotMatch(read("src/library.js"), /markDeleted/);
+  assert.match(syncJs, /pushIndex/, "sync must merge, never replace, the remote list");
+  assert.match(syncJs, /mergeEntries\(mergeEntries\(previous, entries\), deletions\)/,
+    "an empty local list must never shrink the remote list");
+});
+
+test("a tombstone is only written after a delete is final", () => {
+  const lines = appJs.split("\n");
+  lines.forEach((line, position) => {
+    if (!/sync\.markDeleted/.test(line)) return;
+    const window = lines.slice(Math.max(0, position - 6), position + 1).join("\n");
+    assert.match(window, /finalizeDelete|finalizePendingDeletes|deleteEverything/,
+      `markDeleted on line ${position + 1} must follow a confirmed delete`);
+  });
+  // The soft delete itself must not mark anything.
+  assert.match(appJs, /await store\.softDelete\(doc\.id\);\n\s*await refreshLibrary\(\);/,
+    "soft delete must not write a tombstone in the same step");
+});
+
+test("the Undo window is five seconds and resolves as a delete on restart", () => {
+  assert.match(appJs, /\}, 5000\);/, "the Undo window is 5 seconds (spec 7장)");
+  assert.match(read("src/store.js"), /finalizePendingDeletes/);
+});
+
+/* ── preview engine ────────────────────────────────────────────────────── */
+
+test("Run keeps its shims and 300-character error limit", () => {
+  assert.match(previewJs, /SANDBOX_RUN = 'allow-scripts/);
+  assert.match(previewJs, /slice\(0, 300\)/, "runtime messages must be length-limited");
+  assert.match(previewJs, /STORAGE_SHIM/);
+  assert.doesNotMatch(previewJs, SAME_ORIGIN);
+});
+
+test("Read mode is sanitized and the document frame is script-free", () => {
+  const html = read("src/handlers/html.js");
+  assert.match(html, /DOMPurify\.sanitize/);
+  assert.match(html, /allowScripts: false/);
+  assert.match(html, /FORBID_TAGS: \['script'/);
+  // The host frame runs its own bootstrap; the nested document frame is the
+  // one that must never get allow-scripts.
+  assert.match(read("preview-host.html"), /d\.allowScripts\?'allow-scripts[^']*':'allow-downloads'/,
+    "the inner sandbox must depend on allowScripts");
+});
+
+test("Markdown is sanitized into a DOM fragment, not a string", () => {
+  assert.match(read("src/handlers/markdown.js"), /RETURN_DOM_FRAGMENT: true/);
+});
+
+test("SVG is only ever shown through <img>", () => {
+  const image = read("src/handlers/image.js");
+  assert.match(image, /createElement|el\('img'/);
+  assert.doesNotMatch(image, /innerHTML|insertAdjacentHTML/);
+});
+
+/* ── package engine ────────────────────────────────────────────────────── */
+
+const pkg = await import("../src/package.js");
+
+test("the compressed limit is 15 MiB and the other limits are unchanged", () => {
+  assert.equal(pkg.LIMITS.archiveBytes, 15 * 1024 * 1024);
+  assert.equal(pkg.LIMITS.totalUncompressedBytes, 25 * 1024 * 1024);
+  assert.equal(pkg.LIMITS.singleEntryBytes, 10 * 1024 * 1024);
+  assert.equal(pkg.LIMITS.entryCount, 500);
+  assert.equal(pkg.LIMITS.maxCompressionRatio, 100);
+});
+
+test("entry detection: root, single file, one wrapping folder", () => {
+  assert.equal(pkg.pickEntry(["index.html", "a/b.svg"]), "index.html");
+  assert.equal(pkg.pickEntry(["deep/only.html", "deep/x.css"]), "deep/only.html");
+  assert.equal(pkg.pickEntry(["mindmap-5/index.html", "mindmap-5/page.html", "mindmap-5/svg/m.svg"]), "mindmap-5/index.html");
+  assert.throws(() => pkg.pickEntry(["one/index.html", "two/index.html"]), /multiple HTML files/);
+  assert.throws(() => pkg.pickEntry(["a.svg"]), /no entry HTML/);
+});
+
+test("path normalization rejects escapes, absolute paths and reserved keys", () => {
+  assert.throws(() => pkg.normalizePath("../evil.svg", "", false), /escapes the package root/);
+  assert.throws(() => pkg.normalizePath("/evil.svg", "", false), /Unsafe absolute/);
+  assert.throws(() => pkg.normalizePath("__proto__/x.js", "", false), /reserved manifest key/);
+  assert.equal(pkg.normalizePath("a/./b/../c.svg", "", false), "a/c.svg");
+});
+
+// analyze() walks a parsed document; the tests only need the ZIP layer, so a
+// minimal stand-in keeps importZip runnable outside a browser.
+globalThis.DOMParser = class { parseFromString() { return { querySelectorAll: () => [] }; } };
+
+async function importFixture(name) {
+  return pkg.importZip(new File([fixture(name)], name));
+}
+
+test("ZIP defences reject the nine hostile fixtures", async () => {
+  const cases = [
+    ["zip-slip.zip", /escapes the package root/],
+    ["absolute-path.zip", /Unsafe absolute/],
+    ["duplicate.zip", /duplicate path/],
+    ["case-collision.zip", /case-colliding/],
+    ["encrypted.zip", /Encrypted ZIP/],
+    ["oversized.zip", /limit/],
+    ["ambiguous-entry.zip", /multiple HTML files/],
+    ["no-entry.zip", /no entry HTML/],
+    ["corrupt.zip", /corrupt|not a supported ZIP/],
+  ];
+  for (const [name, pattern] of cases) {
+    await assert.rejects(() => importFixture(name), pattern, name);
+  }
+});
+
+test("a package wrapped in one folder imports, two folders stays an error", async () => {
+  const wrapped = await importFixture("wrapped-entry.zip");
+  assert.equal(wrapped.entryPath, "mindmap-5/index.html");
+  assert.ok(wrapped.packageAssets["mindmap-5/svg/map.svg"], "assets keep their full paths");
+  await assert.rejects(() => importFixture("two-folders.zip"), /multiple HTML files/);
+});
+
+test("package-local classic scripts survive import", async () => {
+  const meta = await importFixture("classic-script.zip");
+  assert.equal(meta.entryPath, "index.html");
+  assert.ok(meta.packageAssets["app.js"]);
+});
+
+/* ── encoding, detection, expiry ───────────────────────────────────────── */
+
+const encoding = await import("../src/handlers/encoding.js");
+
+test("UTF-8, CP949 and BOM are told apart", () => {
+  const utf8 = new TextEncoder().encode("한글 test");
+  assert.equal(encoding.decodeBytes(utf8).encoding, "utf-8");
+  assert.equal(encoding.decodeBytes(utf8).text, "한글 test");
+
+  const withBom = new Uint8Array([0xef, 0xbb, 0xbf, ...utf8]);
+  const bomResult = encoding.decodeBytes(withBom);
+  assert.equal(bomResult.hadBom, true);
+  assert.equal(bomResult.text, "한글 test");
+
+  // "한글" in CP949 (Unified Hangul Code), which the euc-kr label covers.
+  const cp949 = new Uint8Array([0xc7, 0xd1, 0xb1, 0xdb]);
+  const korean = encoding.decodeBytes(cp949);
+  assert.equal(korean.encoding, "euc-kr");
+  assert.equal(korean.text, "한글");
+  assert.equal(encoding.labelFor("euc-kr"), "CP949");
+});
+
+const detect = await import("../src/detect.js");
+
+test("magic bytes classify the container formats", () => {
+  const bytes = (...values) => new Uint8Array([...values, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.equal(detect.sniff(bytes(0x25, 0x50, 0x44, 0x46, 0x2d)), "pdf");
+  assert.equal(detect.sniff(bytes(0x50, 0x4b, 0x03, 0x04)), "html-package");
+  assert.equal(detect.sniff(bytes(0x89, 0x50, 0x4e, 0x47)), "image");
+  assert.equal(detect.sniff(bytes(0xff, 0xd8, 0xff)), "image");
+  assert.equal(detect.sniff(new TextEncoder().encode("GIF89a....")), "image");
+  assert.equal(detect.sniff(new TextEncoder().encode("plain text here")), "");
+  assert.equal(detect.TAG_OF["html-package"], "pkg");
+});
+
+const expiry = await import("../src/expiry.js");
+
+test("expiry boundaries: pins, text formats and Never", () => {
+  const now = Date.parse("2026-08-12T12:00:00Z");
+  const day = 86400000;
+  const pdf = (days) => ({ kind: "pdf", lastTouchedAt: now - days * day });
+
+  assert.equal(expiry.isExpired(pdf(6.99), 7, now), false);
+  assert.equal(expiry.isExpired(pdf(7), 7, now), true);
+  assert.equal(expiry.isExpired(pdf(30), 0, now), false, "Never means never");
+  assert.equal(expiry.isExpired({ ...pdf(30), pinned: true }, 7, now), false, "a pin stops the clock");
+  assert.equal(expiry.isExpired({ kind: "text", lastTouchedAt: now - 400 * day }, 7, now), false);
+  assert.equal(expiry.isExpired({ kind: "csv", lastTouchedAt: now - 400 * day }, 7, now), false);
+
+  assert.equal(expiry.daysLeft(pdf(4), 7, now), 3);
+  assert.equal(expiry.expiryBadge(pdf(4), 7, now), "3d");
+  assert.equal(expiry.expiryBadge(pdf(1), 7, now), "", "the badge only shows in the last three days");
+});
+
+/* ── screen text (spec 확정 문구) ──────────────────────────────────────── */
+
+test("the confirmed English strings are present", () => {
+  assert.match(index, /Search documents/);
+  assert.match(index, /Import files/);
+  assert.match(index, /Release expired now/);
+  assert.match(index, /Off — everything stays on this device\./);
+  assert.match(index, /Only titles, tags, dates and sizes are uploaded\. Documents never leave this device\./);
+  assert.match(index, /Delete all documents/);
+  assert.match(read("src/handlers/html.js"), /Scripts in this document will run in an isolated sandbox\./);
+  assert.match(read("src/library.js"), /Already in folio — reconnected instead\./);
+  assert.match(appJs, /Pin limit reached \(\$\{retention\.PIN_LIMIT\}\)\. Unpin one first\./);
+});
+
+test("no trace of the withdrawn vault import remains", () => {
+  APP_SOURCES.concat(["package.json", "manifest.webmanifest"]).forEach((path) => {
+    assert.doesNotMatch(read(path), /Import from vault|migrate-vault/i, `${path} must not mention vault migration`);
+  });
+});

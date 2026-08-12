@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- folio shell policy (plan 10장). Imported documents render inside
+     preview-host.html under a separate, stricter CSP with connect-src 'none'.
+     No iframe anywhere is granted the same-origin sandbox token. Inline and
+     eval script sources are absent; the WebAssembly source below is only for
+     PDF.js image decoders. The ancestor-framing directive is left out —
+     a meta CSP ignores it and the browser logs a console warning, and console
+     errors must be zero. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https://api.github.com; img-src 'self' blob: data:; font-src 'self'; worker-src 'self' blob:; frame-src 'self' blob:; base-uri 'none'; form-action 'none'">
+<title>folio</title>
+<meta name="theme-color" content="#FDF7F8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1C171A" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="folio">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="assets/app.css">
+<script src="vendor/dexie.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="vendor/papaparse.min.js"></script>
+<script src="vendor/highlight.min.js"></script>
+<script type="module" src="src/app.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Library ──────────────────────────────────────────────────────── -->
+  <section class="screen" id="library">
+    <header class="topbar">
+      <h1>folio</h1>
+      <div class="searchrow">
+        <input id="q" type="search" placeholder="Search documents" aria-label="Search documents" enterkeyhint="search" autocomplete="off">
+        <button class="icon" id="btnSort" aria-label="Sort">⇅</button>
+        <button class="icon" id="btnTypeFilter" aria-label="Filter by type">⌗</button>
+      </div>
+    </header>
+
+    <div class="scroll">
+      <section class="continue hidden" id="continueRow" aria-labelledby="continueHead">
+        <h2 id="continueHead">Continue</h2>
+        <div class="contrail" id="continueTrail"></div>
+      </section>
+
+      <div class="chiprow" id="stateChips" role="group" aria-label="Status filter">
+        <button class="chip" data-state="all" aria-pressed="true">All</button>
+        <button class="chip" data-state="pinned" aria-pressed="false">Pinned</button>
+        <button class="chip" data-state="needs" aria-pressed="false">Needs file</button>
+        <button class="chip" data-state="recent" aria-pressed="false">Recent</button>
+      </div>
+
+      <ul class="doclist" id="docList"></ul>
+      <div id="libraryState"></div>
+    </div>
+
+    <footer class="bottombar">
+      <button class="primary grow" id="btnImport">Import files</button>
+      <button class="icon" id="btnSettings" aria-label="Settings">⚙</button>
+      <input class="sr-only" id="filePicker" type="file" multiple aria-hidden="true" tabindex="-1">
+    </footer>
+  </section>
+
+  <!-- ── Viewer ───────────────────────────────────────────────────────── -->
+  <section class="screen hidden" id="viewer">
+    <header class="topbar" id="viewerTop">
+      <button class="icon" id="btnBack" aria-label="Back">←</button>
+      <button class="vtitle" id="viewerTitle" aria-label="Document settings"></button>
+      <div id="viewerTools" class="row"></div>
+    </header>
+    <div class="vbody" id="viewerBody"></div>
+    <footer class="bottombar hidden" id="viewerBottom"></footer>
+  </section>
+
+  <!-- ── Settings ─────────────────────────────────────────────────────── -->
+  <section class="screen hidden" id="settings">
+    <header class="topbar">
+      <button class="icon" id="btnSettingsBack" aria-label="Back">←</button>
+      <h1>Settings</h1>
+    </header>
+    <div class="scroll">
+
+      <section class="setgroup" aria-labelledby="hDisplay">
+        <h2 id="hDisplay">Display</h2>
+        <div class="setrow">
+          <span class="grow">Text size</span>
+          <div class="seg" id="segTextSize" role="group" aria-label="Text size">
+            <button data-fs="6">6</button><button data-fs="8">8</button><button data-fs="10">10</button>
+            <button data-fs="12">12</button><button data-fs="14">14</button><button data-fs="17">17</button>
+          </div>
+          <button id="btnTextReset">Reset</button>
+        </div>
+        <p class="sethelp">Changes the app's text. Document text is zoomed inside the viewer.</p>
+        <div class="setrow">
+          <span class="grow">Appearance</span>
+          <div class="seg" id="segTheme" role="group" aria-label="Appearance">
+            <button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="setgroup" aria-labelledby="hStorage">
+        <h2 id="hStorage">Storage</h2>
+        <div class="setrow">
+          <span class="grow">Retention</span>
+          <div class="seg" id="segRetention" role="group" aria-label="Retention">
+            <button data-days="7">7d</button><button data-days="14">14d</button>
+            <button data-days="30">30d</button><button data-days="0">Never</button>
+          </div>
+        </div>
+        <p class="sethelp">How long an untouched document keeps its local copy. Pinned documents never expire. Text, Markdown, HTML and CSV are always kept.</p>
+        <div class="setrow">
+          <button id="btnReleaseNow">Release expired now</button>
+        </div>
+        <p class="sethelp" id="lastCleanup">Last cleanup: never</p>
+        <h2>Storage</h2>
+        <div class="usebar" id="usageBar" aria-hidden="true"></div>
+        <p class="sethelp" id="usageText">Using 0 B</p>
+      </section>
+
+      <section class="setgroup" aria-labelledby="hBackup">
+        <h2 id="hBackup">Backup</h2>
+        <div class="setrow">
+          <button id="btnExportBackup">Export backup</button>
+          <button id="btnRestoreBackup">Restore from backup</button>
+          <input class="sr-only" id="restorePicker" type="file" accept="application/json,.json" aria-hidden="true" tabindex="-1">
+        </div>
+        <p class="sethelp">Includes your text, Markdown, HTML, CSV and package documents. PDFs and images are listed but not included — keep those originals in Files.</p>
+      </section>
+
+      <section class="setgroup" aria-labelledby="hSync">
+        <h2 id="hSync">Sync</h2>
+        <div class="setrow">
+          <span class="grow" id="syncState">Off — everything stays on this device.</span>
+          <button id="btnSyncToggle">Turn on</button>
+        </div>
+        <div class="setrow hidden" id="syncTokenRow">
+          <input id="syncToken" type="password" placeholder="Access token" aria-label="Access token" autocomplete="off">
+          <button id="btnSyncSave">Save</button>
+          <button id="btnSyncNow">Sync now</button>
+        </div>
+        <p class="sethelp">Only titles, tags, dates and sizes are uploaded. Documents never leave this device.</p>
+      </section>
+
+      <section class="setgroup" aria-labelledby="hDanger">
+        <h2 id="hDanger">Danger</h2>
+        <div class="setrow">
+          <button class="danger" id="btnDeleteAll">Delete all documents</button>
+        </div>
+      </section>
+
+      <section class="setgroup" aria-labelledby="hAbout">
+        <h2 id="hAbout">About</h2>
+        <div class="setrow">
+          <span class="grow" id="buildLine">Build</span>
+          <button id="btnLicences">Licences</button>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+</div>
+
+<div id="overlayHost"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<noscript><p class="empty">folio needs JavaScript to open your documents.</p></noscript>
+</body>
+</html>

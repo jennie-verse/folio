@@ -1,0 +1,7 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Scripted document</title></head>
+<body>
+<h1>Scripted document</h1>
+<p id="out">script did not run</p>
+<img src="x-does-not-exist.png" onerror="document.title='ONERROR RAN'">
+<script>document.getElementById('out').textContent='SCRIPT RAN';window.name='SCRIPT RAN';</script>
+</body></html>

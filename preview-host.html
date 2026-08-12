@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' data:; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>folio preview host</title>
+<style>html,body,#root{height:100%;margin:0}body{background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
+</head>
+<body><div id="root" aria-label="Document preview"></div>
+<script>
+(function(){'use strict';var PROTOCOL='folio-preview-v1',session=null,inner=null;
+function send(type,data){try{parent.postMessage(Object.assign({protocol:PROTOCOL,session:session,type:type},data||{}),'*')}catch(_){}}
+window.addEventListener('message',function(event){var d=event.data;
+  if(event.source===parent&&event.origin!=='null'&&d&&d.protocol===PROTOCOL&&d.type==='render'&&typeof d.session==='string'&&typeof d.html==='string'){
+    session=d.session;var root=document.getElementById('root');root.textContent='';inner=document.createElement('iframe');
+    inner.setAttribute('title','Imported document');inner.setAttribute('sandbox',d.allowScripts?'allow-scripts allow-modals allow-forms allow-downloads allow-popups':'allow-downloads');
+    root.appendChild(inner);inner.srcdoc=d.html;send('host-ready');return;
+  }
+  if(event.source===parent&&event.origin!=='null'&&inner&&d&&d.protocol===PROTOCOL&&d.session===session&&d.type==='restore'){
+    try{inner.contentWindow.postMessage({__folioPreview:1,session:session,type:'restore',y:+d.y||0},'*')}catch(_){}return;
+  }
+  if(inner&&event.source===inner.contentWindow&&event.origin==='null'&&d&&d.__folioPreview===1&&d.session===session&&['ready','scroll','open','asset-error','runtime-error'].indexOf(d.type)>=0){send(d.type,d)}
+});
+send('bootstrap-ready');
+})();
+</script>
+</body></html>
