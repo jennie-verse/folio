@@ -394,6 +394,11 @@ folio 실기기 확인 후 사용자 지시가 있을 때만).
 
 **실측 (`tests/package-map.test.html`, 13/13 통과)**
 
+> 이 하네스는 샘플 ZIP을 `WebApp/sample/` 에서 읽으므로 **로컬 검토 서버**
+> (`http://127.0.0.1:4173/Published/folio/tests/package-map.test.html`)에서
+> 돌려야 13건이 전부 실행됩니다. 배포 URL에서 열면 샘플이 없어 크기 2건은
+> `SKIP` 으로 표시되고 DOM 검사 7건만 돕니다 — 실패가 아닙니다.
+
 | | 이전 | 이후 |
 |---|---|---|
 | `mindmap.zip` materialize | 3.25 MB | **16.4 KB** (링크 23개 태깅) |

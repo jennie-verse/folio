@@ -8,6 +8,13 @@ function check(name, condition, detail) {
   results.push({ name, ok: Boolean(condition), detail: detail || '' });
 }
 
+/* The sample ZIPs live in the WebApp folder, not in the app, so they are only
+   reachable when this page is served from a local review server. On the
+   deployed site that is not a failure — the check simply cannot run. */
+function skip(name, detail) {
+  results.push({ name, ok: true, skipped: true, detail });
+}
+
 /* A page that links to a PDF, draws one image, and does both with a third
    file. Only the link-only file may leave the runtime map. */
 const MIXED = [
@@ -50,7 +57,7 @@ async function run() {
   for (const name of ['mindmap.zip', 'mindmap-.zip']) {
     try {
       const response = await fetch(`../../../sample/${name}`);
-      if (!response.ok) { check(`${name} materializes under 100 KB`, false, `sample not reachable (${response.status})`); continue; }
+      if (!response.ok) { skip(`${name} size check`, 'sample not served here — run from the local review server'); continue; }
       const meta = await pkg.importZip(new File([await response.blob()], name));
       const materialized = pkg.materialize(meta, 's1', '', '');
       const kb = materialized.html.length / 1024;
@@ -64,10 +71,11 @@ async function run() {
   }
 
   const failed = results.filter((row) => !row.ok).length;
+  const skipped = results.filter((row) => row.skipped).length;
   const head = document.getElementById('head');
   head.textContent = failed
     ? `${failed} of ${results.length} checks FAILED`
-    : `All ${results.length} checks passed`;
+    : `All ${results.length - skipped} checks passed${skipped ? ` (${skipped} skipped)` : ''}`;
 
   const list = document.getElementById('results');
   results.forEach((row) => {
@@ -87,8 +95,8 @@ async function run() {
       main.appendChild(sub);
     }
     const badge = document.createElement('span');
-    badge.className = row.ok ? 'badge pin' : 'badge days';
-    badge.textContent = row.ok ? 'PASS' : 'FAIL';
+    badge.className = row.skipped ? 'badge needs' : row.ok ? 'badge pin' : 'badge days';
+    badge.textContent = row.skipped ? 'SKIP' : row.ok ? 'PASS' : 'FAIL';
     line.appendChild(main);
     line.appendChild(badge);
     item.appendChild(line);
