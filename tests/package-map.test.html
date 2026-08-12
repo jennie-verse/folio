@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>folio — package map test</title>
+<link rel="stylesheet" href="../assets/app.css">
+<script type="module" src="package-map.test.js"></script>
+</head>
+<body>
+<!--
+  The half of the package tests that needs a DOM.
+
+  materialize() walks a parsed document, so it cannot run under `node --test`.
+  Open this page from the same static server the app is reviewed on:
+
+      http://127.0.0.1:4173/Published/folio/tests/package-map.test.html
+
+  It checks that anchor-only assets leave the runtime map, that drawn and
+  dual-use assets stay in it, and that the two sample packages materialize to
+  well under 100 KB (they were 3.25 MB and 16.39 MB before the 2026-08-12 fix).
+  The sample ZIPs are read from ../../../sample/, so the server root must be
+  the WebApp folder.
+-->
+<main class="scroll">
+  <h1 class="sec" id="head">Running…</h1>
+  <ul class="doclist" id="results"></ul>
+</main>
+</body>
+</html>

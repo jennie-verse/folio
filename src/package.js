@@ -179,17 +179,105 @@ const PackageApi = Object.create(null);
     });
     return css.replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi,function(all,q,ref){try{var r=resolvePackagePath(ref,baseDir),a=r&&assetFor(doc,r.path);if(!r)return all;if(!a){warnings.push('Missing CSS asset: '+ref);return 'url("data:,folio-missing-asset")'}return 'url("'+dataUrl(a)+r.suffix+'")'}catch(e){warnings.push(e.message);return 'url("data:,folio-blocked-path")'}})
   }
+  /* Which assets does the page actually have to DRAW, and which are merely
+     linked?
+
+     The two mindmap samples are 100% links: every PDF and SVG is reachable
+     only through an <a href>, and inlining them made the srcdoc 3.25 MB and
+     16.39 MB. Those files are opened by folio's own viewers on click, so they
+     never need to be inside the page.
+
+     `display` wins ties on purpose: a file used by BOTH an <img> and an <a>
+     stays inlined, because failing to draw something is worse than carrying
+     it. Assets nothing references stay inlined too — only anchor-ONLY assets
+     are dropped. */
+  function collectRefs(root,baseDir,ALL_ASSETS){
+    var display=Object.create(null),anchor=Object.create(null);
+    function add(bucket,ref){
+      if(!ref||isSpecial(ref))return;
+      try{var r=resolvePackagePath(ref,baseDir);if(r)bucket[r.path]=1}catch(_){/* unsafe paths are handled by the rewriter */}
+    }
+    function addCss(css,dir,depth,seen){
+      if(depth>8)return;
+      String(css||'').replace(/@import\s+(?:url\(\s*)?["']([^"']+)["']\s*\)?\s*;?/gi,function(all,ref){
+        try{
+          var r=resolvePackagePath(ref,dir);
+          if(r&&!seen[r.path]){
+            seen[r.path]=1;display[r.path]=1;
+            var a=assetFor({packageAssets:ALL_ASSETS},r.path);
+            if(a&&a.mime==='text/css')addCss(decodeUtf8(fromBase64(a.data),r.path),dirname(r.path),depth+1,seen);
+          }
+        }catch(_){/* ignore */}
+        return '';
+      });
+      String(css||'').replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi,function(all,q,ref){add(display,ref);return ''});
+    }
+    ALL_ASSETS=ALL_ASSETS||{};
+
+    root.querySelectorAll('[src],[href],[poster],[data]').forEach(function(el){
+      var isAnchor=el.localName==='a'&&el.hasAttribute('href')&&!el.hasAttribute('download');
+      ['src','poster','data','href'].forEach(function(name){
+        if(!el.hasAttribute(name))return;
+        // A plain <a href> is a link. Everything else has to render.
+        if(name==='href'&&isAnchor)add(anchor,el.getAttribute(name));
+        else add(display,el.getAttribute(name));
+      });
+    });
+    root.querySelectorAll('[srcset]').forEach(function(el){
+      String(el.getAttribute('srcset')||'').split(/,(?=\s*(?:[^()]|\([^)]*\))*$)/).forEach(function(c){
+        add(display,c.trim().split(/\s+/)[0]);
+      });
+    });
+    root.querySelectorAll('style').forEach(function(s){addCss(s.textContent,baseDir,0,Object.create(null))});
+    root.querySelectorAll('[style]').forEach(function(el){addCss(el.getAttribute('style'),baseDir,0,Object.create(null))});
+    root.querySelectorAll('link[rel~="stylesheet"][href]').forEach(function(link){
+      try{
+        var r=resolvePackagePath(link.getAttribute('href'),baseDir);
+        if(!r)return;
+        display[r.path]=1;
+        var a=assetFor({packageAssets:ALL_ASSETS},r.path);
+        if(a&&a.mime==='text/css')addCss(decodeUtf8(fromBase64(a.data),r.path),dirname(r.path),0,Object.create(null));
+      }catch(_){/* ignore */}
+    });
+    return {display:display,anchor:anchor};
+  }
+
+  /** Paths that must stay in the runtime map: everything except anchor-only. */
+  function inlinePaths(assets,refs){
+    var out=Object.create(null);
+    Object.keys(assets||{}).forEach(function(path){
+      if(refs.anchor[path]&&!refs.display[path])return;
+      out[path]=1;
+    });
+    return out;
+  }
+
   function rewriteStatic(root,doc,baseDir,warnings){
-    var attrs=['src','href','poster'];root.querySelectorAll('*').forEach(function(el){if(el.localName==='script'||(el.localName==='link'&&/\bstylesheet\b/i.test(el.getAttribute('rel')||'')))return;attrs.forEach(function(attr){if(!el.hasAttribute(attr))return;var ref=el.getAttribute(attr);if(attr==='href'&&el.localName==='a'&&!el.hasAttribute('download'))return;try{var r=resolvePackagePath(ref,baseDir);if(!r)return;var a=assetFor(doc,r.path);if(!a){warnings.push('Missing package asset: '+ref);el.setAttribute(attr,'data:,folio-missing-asset');return}el.setAttribute(attr,dataUrl(a)+r.suffix)}catch(e){warnings.push(e.message);el.setAttribute(attr,'data:,folio-blocked-path')}})});
+    var attrs=['src','href','poster'];root.querySelectorAll('*').forEach(function(el){if(el.localName==='script'||(el.localName==='link'&&/\bstylesheet\b/i.test(el.getAttribute('rel')||'')))return;attrs.forEach(function(attr){if(!el.hasAttribute(attr))return;var ref=el.getAttribute(attr);
+      /* A link stays a link. The package path is recorded so a tap can be
+         handed to folio's own viewer instead of navigating the sandbox to a
+         multi-megabyte data: URL. */
+      if(attr==='href'&&el.localName==='a'&&!el.hasAttribute('download')){
+        try{var lr=resolvePackagePath(ref,baseDir);if(lr&&assetFor(doc,lr.path))el.setAttribute('data-folio-path',lr.path)}catch(e){/* left as a dead link */}
+        return;
+      }
+      try{var r=resolvePackagePath(ref,baseDir);if(!r)return;var a=assetFor(doc,r.path);if(!a){warnings.push('Missing package asset: '+ref);el.setAttribute(attr,'data:,folio-missing-asset');return}el.setAttribute(attr,dataUrl(a)+r.suffix)}catch(e){warnings.push(e.message);el.setAttribute(attr,'data:,folio-blocked-path')}})});
     root.querySelectorAll('[srcset]').forEach(function(el){var value=el.getAttribute('srcset')||'',parts=value.split(/,(?=\s*(?:[^()]|\([^)]*\))*$)/);el.setAttribute('srcset',parts.map(function(c){var bits=c.trim().split(/\s+/),ref=bits.shift();try{var r=resolvePackagePath(ref,baseDir),a=r&&assetFor(doc,r.path);if(r&&a)ref=dataUrl(a)+r.suffix;else if(r)warnings.push('Missing package asset: '+ref)}catch(e){warnings.push(e.message)}return [ref].concat(bits).join(' ')}).join(', '))});
     root.querySelectorAll('style').forEach(function(s){s.textContent=rewriteCss(s.textContent||'',baseDir,doc,0,Object.create(null),warnings)});
     root.querySelectorAll('[style]').forEach(function(el){el.setAttribute('style',rewriteCss(el.getAttribute('style')||'',baseDir,doc,0,Object.create(null),warnings))});
     root.querySelectorAll('link[rel~="stylesheet"]').forEach(function(link){var href=link.getAttribute('href');if(!href||/^data:/i.test(href))return;try{var r=resolvePackagePath(href,baseDir),a=r&&assetFor(doc,r.path);if(!a)return;var css=decodeUtf8(fromBase64(a.data),r.path),style=root.createElement?root.createElement('style'):document.createElement('style');style.textContent=rewriteCss(css,dirname(r.path),doc,0,Object.create(null),warnings);link.replaceWith(style)}catch(e){warnings.push(e.message)}})
   }
-  function shim(doc,baseDir,sessionId){
-    var map=Object.create(null);Object.keys(doc.packageAssets||{}).forEach(function(k){map[k]=dataUrl(doc.packageAssets[k])});
-    var payload=JSON.stringify({map:map,base:baseDir,session:sessionId});
-    return '<script>(function(){"use strict";var P='+safeScriptText(payload)+',M=P.map,B=P.base,reported=Object.create(null);function post(type,data){try{parent.postMessage(Object.assign({__folioPreview:1,session:P.session,type:type},data||{}),"*")}catch(e){}}function special(v){return /^(?:#|data:|blob:|https?:|\\/\\/|mailto:|tel:|sms:|about:)/i.test(v)}function resolve(v){v=String(v||"");if(!v||special(v)||/^[a-z][a-z0-9+.-]*:/i.test(v))return v;var suffix="",i=v.indexOf("#");if(i>=0){suffix=v.slice(i);v=v.slice(0,i)}i=v.indexOf("?");if(i>=0){suffix=v.slice(i)+suffix;v=v.slice(0,i)}try{v=decodeURIComponent(v)}catch(e){}v=v.replace(/\\\\/g,"/");var parts=(v.charAt(0)==="/"?v.slice(1):(B?B+"/":"")+v).split("/"),out=[];for(i=0;i<parts.length;i++){if(!parts[i]||parts[i]===".")continue;if(parts[i]===".."){if(!out.length)return missing(v);out.pop()}else out.push(parts[i])}var p=out.join("/");return M[p]?M[p]+suffix:missing(p)}function missing(p){if(!reported[p]){reported[p]=1;post("asset-error",{path:p})}return "data:,folio-missing-asset"}function attr(el,n){var v=el.getAttribute(n);if(v&&!special(v))el.setAttribute(n,resolve(v))}var nativeSet=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){n=String(n).toLowerCase();if(n==="src"||n==="href"||n==="poster")v=resolve(v);return nativeSet.call(this,n,v)};[[window.HTMLImageElement,"src"],[window.HTMLSourceElement,"src"],[window.HTMLVideoElement,"src"],[window.HTMLVideoElement,"poster"],[window.HTMLAudioElement,"src"],[window.HTMLTrackElement,"src"],[window.HTMLAnchorElement,"href"]].forEach(function(x){if(!x[0])return;var d=Object.getOwnPropertyDescriptor(x[0].prototype,x[1]);if(d&&d.set&&d.get)try{Object.defineProperty(x[0].prototype,x[1],{configurable:d.configurable,enumerable:d.enumerable,get:d.get,set:function(v){d.set.call(this,resolve(v))}})}catch(e){}});var ih=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");function rewriteHtml(h){var t=document.createElement("template");ih.set.call(t,String(h));t.content.querySelectorAll("[src],[href],[poster]").forEach(function(el){["src","href","poster"].forEach(function(n){if(el.hasAttribute(n))attr(el,n)})});return ih.get.call(t)}if(ih&&ih.set)try{Object.defineProperty(Element.prototype,"innerHTML",{configurable:ih.configurable,enumerable:ih.enumerable,get:ih.get,set:function(v){ih.set.call(this,rewriteHtml(v))}})}catch(e){}var ia=Element.prototype.insertAdjacentHTML;if(ia)Element.prototype.insertAdjacentHTML=function(pos,html){return ia.call(this,pos,rewriteHtml(html))};new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeType!==1)return;[n].concat(Array.from(n.querySelectorAll("[src],[href],[poster]"))).forEach(function(el){["src","href","poster"].forEach(function(a){if(el.hasAttribute&&el.hasAttribute(a))attr(el,a)})})})})}).observe(document,{subtree:true,childList:true});window.addEventListener("error",function(e){post("runtime-error",{message:e.message||"Preview resource failed"})},true)})();</script>';
+  /* `keep` is the set of paths allowed into the runtime map; `known` is every
+     path in the package, so an anchor can still be tagged with a path whose
+     bytes were deliberately left out of the page. */
+  function shim(doc,baseDir,sessionId,keep){
+    var assets=doc.packageAssets||{},map=Object.create(null),known=Object.create(null);
+    Object.keys(assets).forEach(function(k){
+      known[k]=1;
+      if(!keep||keep[k])map[k]=dataUrl(assets[k]);
+    });
+    var payload=JSON.stringify({map:map,known:known,base:baseDir,session:sessionId});
+    return '<script>(function(){"use strict";var P='+safeScriptText(payload)+',M=P.map,K=P.known,B=P.base,reported=Object.create(null);function post(type,data){try{parent.postMessage(Object.assign({__folioPreview:1,session:P.session,type:type},data||{}),"*")}catch(e){}}function special(v){return /^(?:#|data:|blob:|https?:|\\/\\/|mailto:|tel:|sms:|about:)/i.test(v)}function norm(v){v=String(v||"");if(!v||special(v)||/^[a-z][a-z0-9+.-]*:/i.test(v))return null;var suffix="",i=v.indexOf("#");if(i>=0){suffix=v.slice(i);v=v.slice(0,i)}i=v.indexOf("?");if(i>=0){suffix=v.slice(i)+suffix;v=v.slice(0,i)}try{v=decodeURIComponent(v)}catch(e){}v=v.replace(/\\\\/g,"/");var parts=(v.charAt(0)==="/"?v.slice(1):(B?B+"/":"")+v).split("/"),out=[];for(i=0;i<parts.length;i++){if(!parts[i]||parts[i]===".")continue;if(parts[i]===".."){if(!out.length)return {path:null,suffix:suffix};out.pop()}else out.push(parts[i])}return {path:out.join("/"),suffix:suffix}}function resolve(v){var r=norm(v);if(!r)return String(v||"");if(!r.path)return missing(String(v||""));return M[r.path]?M[r.path]+r.suffix:missing(r.path)}function missing(p){report(p);return "data:,folio-missing-asset"}function report(p){if(!reported[p]){reported[p]=1;post("asset-error",{path:p})}}/* A link keeps its package path and is handed to folio on click; only assets the page must draw are inlined. */function isLink(el,n){return n==="href"&&el&&el.localName==="a"&&!el.hasAttribute("download")}function tagLink(el,v){if(special(String(v||"")))return;var r=norm(v);if(!r||!r.path)return;if(K[r.path])nativeSet.call(el,"data-folio-path",r.path);else report(r.path)}function attr(el,n){var v=el.getAttribute(n);if(!v||special(v))return;if(isLink(el,n)){tagLink(el,v);return}el.setAttribute(n,resolve(v))}var nativeSet=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){n=String(n).toLowerCase();if(isLink(this,n)){tagLink(this,v);return nativeSet.call(this,n,v)}if(n==="src"||n==="href"||n==="poster")v=resolve(v);return nativeSet.call(this,n,v)};if(window.HTMLAnchorElement){var ad=Object.getOwnPropertyDescriptor(window.HTMLAnchorElement.prototype,"href");if(ad&&ad.set&&ad.get)try{Object.defineProperty(window.HTMLAnchorElement.prototype,"href",{configurable:ad.configurable,enumerable:ad.enumerable,get:ad.get,set:function(v){tagLink(this,v);ad.set.call(this,v)}})}catch(e){}}[[window.HTMLImageElement,"src"],[window.HTMLSourceElement,"src"],[window.HTMLVideoElement,"src"],[window.HTMLVideoElement,"poster"],[window.HTMLAudioElement,"src"],[window.HTMLTrackElement,"src"]].forEach(function(x){if(!x[0])return;var d=Object.getOwnPropertyDescriptor(x[0].prototype,x[1]);if(d&&d.set&&d.get)try{Object.defineProperty(x[0].prototype,x[1],{configurable:d.configurable,enumerable:d.enumerable,get:d.get,set:function(v){d.set.call(this,resolve(v))}})}catch(e){}});var ih=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");function rewriteHtml(h){var t=document.createElement("template");ih.set.call(t,String(h));t.content.querySelectorAll("[src],[href],[poster]").forEach(function(el){["src","href","poster"].forEach(function(n){if(el.hasAttribute(n))attr(el,n)})});return ih.get.call(t)}if(ih&&ih.set)try{Object.defineProperty(Element.prototype,"innerHTML",{configurable:ih.configurable,enumerable:ih.enumerable,get:ih.get,set:function(v){ih.set.call(this,rewriteHtml(v))}})}catch(e){}var ia=Element.prototype.insertAdjacentHTML;if(ia)Element.prototype.insertAdjacentHTML=function(pos,html){return ia.call(this,pos,rewriteHtml(html))};new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeType!==1)return;[n].concat(Array.from(n.querySelectorAll("[src],[href],[poster]"))).forEach(function(el){["src","href","poster"].forEach(function(a){if(el.hasAttribute&&el.hasAttribute(a))attr(el,a)})})})})}).observe(document,{subtree:true,childList:true});window.addEventListener("error",function(e){post("runtime-error",{message:e.message||"Preview resource failed"})},true)})();</script>';
   }
   function inlinePackageScripts(docNode,doc,baseDir,warnings){
     docNode.querySelectorAll('script').forEach(function(s){var type=(s.getAttribute('type')||'').trim().toLowerCase();if(type==='module'){warnings.push('ES module scripts are not supported.');s.type='application/x-vault-unsupported';return}var src=s.getAttribute('src');if(!src)return;if(/^(?:https?:|\/\/)/i.test(src)){warnings.push('Remote script blocked by preview policy: '+src);s.type='application/x-vault-remote-blocked';s.removeAttribute('src');return}try{var r=resolvePackagePath(src,baseDir),a=r&&assetFor(doc,r.path);if(!a){warnings.push('Missing classic script: '+src);s.type='application/x-vault-missing';s.removeAttribute('src');return}if(!/(?:javascript|ecmascript)/i.test(a.mime)&&!/\.js$/i.test(r.path)){warnings.push('Unsupported script type: '+r.path);s.type='application/x-vault-unsupported';s.removeAttribute('src');return}var code=decodeUtf8(fromBase64(a.data),r.path);s.textContent=code.replace(/<\/script/gi,'<\\/script');s.removeAttribute('src');s.removeAttribute('integrity');s.removeAttribute('crossorigin')}catch(e){warnings.push(e.message);s.type='application/x-vault-unsupported';s.removeAttribute('src')}})
@@ -197,9 +285,12 @@ const PackageApi = Object.create(null);
   function materialize(doc,sessionId,instrument,storageShim){
     var parsed=new DOMParser().parseFromString(doc.content||'','text/html'),warnings=[],baseDir=dirname(doc.entryPath||'index.html'),base=parsed.querySelector('base[href]');
     if(base){try{var b=resolvePackagePath(base.getAttribute('href'),baseDir);if(b)baseDir=b.path.replace(/\/$/,'')}catch(e){warnings.push('Unsupported <base>: '+e.message)}base.remove()}
+    // Classify BEFORE rewriting: rewriteStatic replaces refs with data: URLs
+    // and the original package paths are gone after it runs.
+    var keep=inlinePaths(doc.packageAssets,collectRefs(parsed,baseDir,doc.packageAssets));
     rewriteStatic(parsed,doc,baseDir,warnings);inlinePackageScripts(parsed,doc,baseDir,warnings);
     var head=parsed.head||parsed.documentElement.insertBefore(parsed.createElement('head'),parsed.body||null);
-    head.insertAdjacentHTML('afterbegin',(storageShim||'')+shim(doc,baseDir,sessionId));
+    head.insertAdjacentHTML('afterbegin',(storageShim||'')+shim(doc,baseDir,sessionId,keep));
     if(instrument)(parsed.body||parsed.documentElement).insertAdjacentHTML('beforeend',instrument);
     return {html:'<!DOCTYPE html>\n'+parsed.documentElement.outerHTML,warnings:warnings.filter(function(v,i,a){return a.indexOf(v)===i})};
   }

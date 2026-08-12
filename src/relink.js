@@ -6,7 +6,30 @@
 
 import { el, formatBytes, formatWhen, confirmDialog, toast } from './ui.js';
 import { hashBlob } from './hashing.js';
-import { saveFile, patchDocument, touch } from './store.js';
+import { saveFile, patchDocument, touch, putPackageAssets } from './store.js';
+import * as pkg from './package.js';
+
+/** Reconnecting a package has to rebuild its assets.
+
+    Releasing a package deletes its `packageAssets` rows, and for a package
+    those rows ARE the document — the entry HTML alone renders a page whose
+    every internal link is dead. Re-extracting the ZIP is the only way to
+    honour plan 7장's promise that a release costs the original bytes and
+    nothing else.
+
+    Returns the patch to apply, or throws so the caller can abandon the whole
+    reconnect rather than leave a half-linked document. */
+async function packagePatch(doc, file) {
+  if (doc.kind !== 'html-package') return {};
+  const meta = await pkg.importZip(file);
+  await putPackageAssets(doc.id, meta.packageAssets);
+  return {
+    entryPath: meta.entryPath,
+    entryContent: meta.content,
+    packageFileCount: meta.packageFileCount,
+    packageAssetsReleased: false,
+  };
+}
 
 /** Ask for a file and reconnect it.
     Returns 'linked' | 'new' | 'cancelled'. */
@@ -23,8 +46,15 @@ export async function reconnect(doc, { pickFile, importFiles }) {
   }
 
   if (hash === doc.fileHash) {
+    let patch;
+    try {
+      patch = await packagePatch(doc, file);
+    } catch {
+      toast('This ZIP could not be read.');
+      return 'cancelled';
+    }
     await saveFile(hash, doc.id, file);
-    await patchDocument(doc.id, { released: false, size: file.size, fileName: file.name });
+    await patchDocument(doc.id, { released: false, size: file.size, fileName: file.name, ...patch });
     await touch(doc.id);
     toast('Reconnected.');
     return 'linked';
@@ -47,8 +77,15 @@ export async function reconnect(doc, { pickFile, importFiles }) {
   });
 
   if (answer === 'extra') {
+    let patch;
+    try {
+      patch = await packagePatch(doc, file);
+    } catch {
+      toast('This ZIP could not be read.');
+      return 'cancelled';
+    }
     await saveFile(hash, doc.id, file);
-    await patchDocument(doc.id, { released: false, fileHash: hash, size: file.size, fileName: file.name });
+    await patchDocument(doc.id, { released: false, fileHash: hash, size: file.size, fileName: file.name, ...patch });
     await touch(doc.id);
     toast('Reconnected.');
     return 'linked';

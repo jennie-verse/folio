@@ -11,7 +11,8 @@ import * as backup from './backup.js';
 import * as relink from './relink.js';
 import * as sync from './sync.js';
 import * as syncRunner from './sync-runner.js';
-import { TAG_OF, KINDS } from './detect.js';
+import * as pkg from './package.js';
+import { TAG_OF, KINDS, detect } from './detect.js';
 import { APP_BUILD } from './version.js';
 import { FONT_STEPS } from './settings.js';
 
@@ -36,6 +37,8 @@ const State = {
   docs: [],
   current: null,
   view: null,          // the mounted handler instance
+  transient: false,    // true while showing a file that lives inside a package
+  assetReturn: null,   // {docId} — where Back goes from an opened package asset
   storageOk: true,
   pendingUndo: new Map(),
 };
@@ -299,28 +302,33 @@ function setBottomText(text) {
   if (slot) slot.textContent = bottomText;
 }
 
+/** The `Needs file` flow. Returns true when the document is usable again. */
+async function reconnectDocument(fresh) {
+  const answer = await confirmDialog({
+    title: 'Choose the original file',
+    message: [
+      fresh.fileName || fresh.title,
+      formatBytes(fresh.size),
+      fresh.pageCount ? `${fresh.pageCount} pages` : '',
+      fresh.rowCount ? `${fresh.rowCount} rows` : '',
+    ].filter(Boolean).join(' · '),
+    confirmLabel: 'Choose file',
+  });
+  if (!answer) return false;
+  const result = await relink.reconnect(fresh, {
+    pickFile: pickOneFile,
+    importFiles: (files) => handleImport(files),
+  });
+  await refreshLibrary();
+  return result === 'linked';
+}
+
 async function openDocument(doc) {
   const fresh = await store.getDocument(doc.id);
   if (!fresh) { await refreshLibrary(); return; }
 
   if (fresh.released) {
-    const answer = await confirmDialog({
-      title: 'Choose the original file',
-      message: [
-        fresh.fileName || fresh.title,
-        formatBytes(fresh.size),
-        fresh.pageCount ? `${fresh.pageCount} pages` : '',
-        fresh.rowCount ? `${fresh.rowCount} rows` : '',
-      ].filter(Boolean).join(' · '),
-      confirmLabel: 'Choose file',
-    });
-    if (!answer) return;
-    const result = await relink.reconnect(fresh, {
-      pickFile: pickOneFile,
-      importFiles: (files) => handleImport(files),
-    });
-    await refreshLibrary();
-    if (result !== 'linked') return;
+    if (!await reconnectDocument(fresh)) return;
     return openDocument(fresh);
   }
 
@@ -332,22 +340,30 @@ async function openDocument(doc) {
     return;
   }
 
-  closeViewer();
-  State.current = fresh;
-  bottomText = '';
-  await store.touch(fresh.id);
+  State.assetReturn = null;
+  await showInViewer(fresh, file.blob);
+  await refreshLibrary();
+}
 
-  $('#viewerTitle').textContent = fresh.title || fresh.fileName || '';
+/** Mount one document — stored or transient — into the viewer chrome. */
+async function showInViewer(record, blob, { transient = false } = {}) {
+  closeViewer();
+  State.current = record;
+  State.transient = transient;
+  bottomText = '';
+  if (!transient) await store.touch(record.id);
+
+  $('#viewerTitle').textContent = record.title || record.fileName || '';
   $('#viewer').classList.remove('bars-hidden');
   const body = $('#viewerBody');
   clear(body);
   body.appendChild(el('div', { class: 'empty', text: 'Opening…' }));
   show('viewer');
 
-  const handler = HANDLERS[fresh.kind];
+  const handler = HANDLERS[record.kind];
   if (!handler) { clear(body); body.appendChild(el('div', { class: 'empty', text: 'folio has no viewer for this document.' })); return; }
 
-  const context = buildContext(fresh, file.blob, body);
+  const context = buildContext(record, blob, body, transient);
   let view;
   try {
     view = await handler.render(context);
@@ -355,7 +371,9 @@ async function openDocument(doc) {
     clear(body);
     body.appendChild(el('div', { class: 'empty' }, [
       el('p', { text: 'This file could not be read. It may be damaged.' }),
-      el('button', { type: 'button', text: 'Export original', onclick: () => exportOriginal(fresh) }),
+      transient
+        ? el('button', { type: 'button', text: 'Export file', onclick: () => downloadBlob(blob, record.fileName || 'file') })
+        : el('button', { type: 'button', text: 'Export original', onclick: () => exportOriginal(record) }),
     ]));
     console.warn('viewer', error);
     return;
@@ -368,7 +386,7 @@ async function openDocument(doc) {
 
   const bottom = $('#viewerBottom');
   clear(bottom);
-  const wantsBottom = (view.bottom && view.bottom.length) || ['text', 'csv'].includes(fresh.kind);
+  const wantsBottom = (view.bottom && view.bottom.length) || ['text', 'csv'].includes(record.kind);
   if (wantsBottom) {
     (view.bottom || []).forEach((control) => bottom.appendChild(control));
     bottom.appendChild(el('span', { class: 'vbottom-text small muted', text: bottomText }));
@@ -377,17 +395,16 @@ async function openDocument(doc) {
     bottom.classList.add('hidden');
   }
 
-  applyDocZoom(await store.getReadingState(fresh.id));
+  applyDocZoom(transient ? {} : await store.getReadingState(record.id));
   attachBodyGestures(body);
 
   if (!settings.get('viewerHintSeen')) {
     settings.set('viewerHintSeen', true);
     toast('Tap the page to hide the bars.');
   }
-  await refreshLibrary();
 }
 
-function buildContext(doc, blob, body) {
+function buildContext(doc, blob, body, transient = false) {
   return {
     doc,
     blob,
@@ -395,12 +412,14 @@ function buildContext(doc, blob, body) {
     openExternal,
     setBottomText,
     async patchDoc(patch) {
+      if (transient) { Object.assign(doc, patch); return doc; }
       const next = await store.patchDocument(doc.id, patch);
       if (next) Object.assign(doc, patch);
       return next;
     },
-    readingState: () => store.getReadingState(doc.id),
+    readingState: () => (transient ? Promise.resolve({}) : store.getReadingState(doc.id)),
     saveReading: (patch) => {
+      if (transient) return Promise.resolve({});
       const merged = { ...patch };
       if (patch.scrollY !== undefined && body.scrollHeight > body.clientHeight) {
         merged.progress = Math.min(1, patch.scrollY / Math.max(1, body.scrollHeight - body.clientHeight));
@@ -408,16 +427,79 @@ function buildContext(doc, blob, body) {
       if (patch.page && doc.pageCount) merged.progress = patch.page / doc.pageCount;
       return store.putReadingState(doc.id, merged);
     },
-    packageAssets: () => store.getPackageAssets(doc.id),
+    packageAssets: () => (transient ? Promise.resolve({}) : store.getPackageAssets(doc.id)),
     openFind: (finder) => openFindSheet(finder),
     openPdfFind: (pdf, goToPage) => openPdfFindSheet(pdf, goToPage),
+    openAsset: (path) => openPackageAsset(doc, path),
+    async reconnect() {
+      if (await reconnectDocument(doc)) await openDocument(doc);
+    },
   };
+}
+
+/* ── opening a file that lives inside a package ────────────────────────── */
+
+const ASSET_MIME_FALLBACK = 'application/octet-stream';
+
+/**
+ * A link inside a package opens in folio's own viewer — PDF.js for a PDF, the
+ * image viewer for a picture — instead of navigating the sandbox to a
+ * multi-megabyte data: URL.
+ *
+ * The Blob is built HERE, on the app side. The sandbox never receives it: its
+ * origin is opaque, so a blob: URL would be unreadable there anyway, and
+ * handing one over would blur the isolation that keeps a stored document away
+ * from the rest of the library.
+ */
+async function openPackageAsset(parentDoc, path) {
+  const assets = await store.getPackageAssets(parentDoc.id);
+  const asset = assets[path];
+  if (!asset) { toast('This file is not in the package.'); return; }
+
+  const blob = new Blob([pkg.fromBase64(asset.data)], { type: asset.mime || ASSET_MIME_FALLBACK });
+  const fileName = path.split('/').pop() || path;
+  const probe = new File([blob], fileName, { type: blob.type });
+  const { kind } = await detect(probe);
+
+  if (!kind || !HANDLERS[kind]) {
+    const ok = await confirmDialog({
+      title: 'Export this file?',
+      message: `folio has no viewer for ${fileName}.`,
+      confirmLabel: 'Export file',
+    });
+    if (ok) downloadBlob(blob, fileName);
+    return;
+  }
+
+  // Where Back returns to. The package's own scroll position was saved while
+  // it was open, so reopening it lands where the link was tapped.
+  State.assetReturn = { docId: parentDoc.id };
+  await showInViewer({
+    id: `${parentDoc.id}#${path}`,
+    kind,
+    title: fileName,
+    fileName,
+    size: blob.size,
+  }, blob, { transient: true });
+}
+
+async function leaveViewer() {
+  const back = State.assetReturn;
+  State.assetReturn = null;
+  if (back) {
+    const parent = await store.getDocument(back.docId);
+    if (parent) { await openDocument(parent); return; }
+  }
+  closeViewer();
+  show('library');
+  await refreshLibrary();
 }
 
 function closeViewer() {
   if (State.view && State.view.destroy) { try { State.view.destroy(); } catch { /* already gone */ } }
   State.view = null;
   State.current = null;
+  State.transient = false;
   const body = $('#viewerBody');
   body.removeEventListener('scroll', onViewerScroll);
   clear(body);
@@ -430,7 +512,7 @@ function onViewerScroll() {
   const body = $('#viewerBody');
   if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
   scrollSaveTimer = setTimeout(() => {
-    if (!State.current) return;
+    if (!State.current || State.transient) return;
     const max = Math.max(1, body.scrollHeight - body.clientHeight);
     store.putReadingState(State.current.id, {
       scrollY: body.scrollTop,
@@ -517,6 +599,12 @@ function openDocumentSheet() {
         segment.appendChild(el('button', { type: 'button', text: String(step), onclick: () => setDocZoom(step) }));
       });
       panel.appendChild(segment);
+    }
+    // A file opened from inside a package has no library record to pin,
+    // rename or export as an original.
+    if (State.transient) {
+      panel.appendChild(el('p', { class: 'small muted', text: 'This file is inside a package.' }));
+      return;
     }
     panel.appendChild(el('div', { class: 'row' }, [
       el('button', { type: 'button', text: doc.pinned ? 'Unpin' : 'Pin', onclick: () => { close(); togglePin(doc); } }),
@@ -842,7 +930,7 @@ function wire() {
   });
   $('#btnSettingsBack').addEventListener('click', () => { show('library'); refreshLibrary(); });
 
-  $('#btnBack').addEventListener('click', () => { closeViewer(); show('library'); refreshLibrary(); });
+  $('#btnBack').addEventListener('click', () => { leaveViewer(); });
   $('#viewerTitle').addEventListener('click', openDocumentSheet);
 
   $$('#segTextSize button').forEach((button) => {

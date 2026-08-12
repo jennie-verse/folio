@@ -234,6 +234,72 @@ test("package-local classic scripts survive import", async () => {
   assert.ok(meta.packageAssets["app.js"]);
 });
 
+/* ── package asset loss (2026-08-12 fix) ───────────────────────────────── */
+
+test("reconnecting a package rebuilds its assets on both paths", () => {
+  const relink = read("src/relink.js");
+  assert.match(relink, /pkg\.importZip\(file\)/, "a reconnect must re-extract the ZIP");
+  assert.match(relink, /putPackageAssets\(doc\.id, meta\.packageAssets\)/);
+  assert.match(relink, /entryPath: meta\.entryPath/);
+  assert.match(relink, /packageAssetsReleased: false/);
+  // Both the hash-match path and the "Link anyway" path apply the patch, and
+  // a ZIP that cannot be read cancels instead of half-linking.
+  assert.equal((relink.match(/await packagePatch\(doc, file\)/g) || []).length, 2);
+  assert.equal((relink.match(/This ZIP could not be read\./g) || []).length, 2);
+  assert.equal((relink.match(/\.\.\.patch \}\)/g) || []).length, 2);
+});
+
+test("releasing a package records that its assets went with the bytes", () => {
+  const retention = read("src/retention.js");
+  assert.match(retention, /doc\.kind === 'html-package'/);
+  assert.match(retention, /packageAssetsReleased: true/);
+});
+
+test("a package with no assets refuses to render", () => {
+  const html = read("src/handlers/html.js");
+  assert.match(html, /isPackage && \(!assets \|\| Object\.keys\(assets\)\.length === 0\)/);
+  assert.match(html, /This package's files are missing\. Reconnect the original ZIP\./);
+  assert.match(html, /text: 'Reconnect'/);
+});
+
+test("a package link is handed to folio, never navigated to a data: URL", () => {
+  const previewJs2 = read("src/preview.js");
+  assert.match(previewJs2, /data-folio-path/, "links carry their package path");
+  assert.match(previewJs2, /open-asset/);
+  assert.match(previewJs2, /options\.onOpenAsset/);
+  const appSrc = read("src/app.js");
+  assert.match(appSrc, /openPackageAsset/);
+  assert.match(appSrc, /This file is not in the package\./);
+  // The Blob is built on the app side; the sandbox never receives one.
+  assert.doesNotMatch(previewJs2, /createObjectURL/);
+  assert.doesNotMatch(read("src/package.js"), /createObjectURL/);
+});
+
+/* materialize() walks a parsed document, and Node has no DOM. The two checks
+   that need one — which assets stay in the runtime map, and how large the two
+   sample packages materialize to — run in tests/package-map.test.html, the
+   same way vault kept tests/package.test.html. What CAN be pinned here is the
+   wiring, so the classification cannot be silently bypassed. */
+
+test("the map is filtered by reference class, before the rewrite loses paths", () => {
+  const source = read("src/package.js");
+  assert.match(source, /function collectRefs\(root,baseDir,ALL_ASSETS\)/);
+  assert.match(source, /function inlinePaths\(assets,refs\)/);
+  // Anchor-only means: linked, and never drawn.
+  assert.match(source, /if\(refs\.anchor\[path\]&&!refs\.display\[path\]\)return;/,
+    "a file that is drawn as well as linked must stay inlined");
+  // Classification has to happen before rewriteStatic replaces the refs.
+  const classify = source.indexOf("var keep=inlinePaths(");
+  const rewrite = source.indexOf("rewriteStatic(parsed,doc,baseDir,warnings)");
+  assert.ok(classify > 0 && rewrite > classify, "classify before rewriting, or the paths are gone");
+  assert.match(source, /shim\(doc,baseDir,sessionId,keep\)/);
+  // Every path stays *known* so a link can still be tagged with one.
+  assert.match(source, /known\[k\]=1;\s*\n?\s*if\(!keep\|\|keep\[k\]\)map\[k\]=dataUrl\(assets\[k\]\)/);
+  assert.match(source, /el\.setAttribute\('data-folio-path',lr\.path\)/);
+  assert.ok(existsSync(join(root, "tests/package-map.test.html")),
+    "the browser half of this check must ship");
+});
+
 /* ── encoding, detection, expiry ───────────────────────────────────────── */
 
 const encoding = await import("../src/handlers/encoding.js");

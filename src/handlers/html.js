@@ -23,6 +23,9 @@ const PURIFY_DOCUMENT = {
   RETURN_DOM: true,
   FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base'],
   ALLOW_DATA_ATTR: false,
+  // Data attributes are off, but this one is folio's own marker for a link
+  // that points inside the package, so it is allowed back in by name.
+  ADD_ATTR: ['data-folio-path'],
 };
 
 export async function extractText(blob, doc) {
@@ -54,6 +57,20 @@ export async function render(ctx) {
     source = doc.entryContent || '';
   } else {
     source = (await decodeBlob(ctx.blob, doc.encoding)).text;
+  }
+
+  /* A package without its assets is not a document that renders badly — it is
+     a document folio no longer has. The entry HTML alone would draw a page
+     that looks fine and whose every internal link is dead, which misleads
+     rather than informs. */
+  if (isPackage && (!assets || Object.keys(assets).length === 0)) {
+    body.classList.add('pad');
+    clear(body);
+    body.appendChild(el('div', { class: 'empty' }, [
+      el('p', { text: "This package's files are missing. Reconnect the original ZIP." }),
+      el('button', { class: 'primary', type: 'button', text: 'Reconnect', onclick: () => ctx.reconnect() }),
+    ]));
+    return { tools: [], destroy() {} };
   }
 
   const analysis = pkg.analyze(source);
@@ -124,14 +141,23 @@ export async function render(ctx) {
         text: `Blocked ${blocked} remote resource${blocked === 1 ? '' : 's'}. Switch to Run to load this document with scripts.`,
       }));
     }
+    /* A package is rewritten first so its images resolve and its links carry
+       `data-folio-path`, then sanitized — the sanitizer removes every script
+       the rewrite inlined, so the frame still loads with no scripting at all.
+       (Packages are Run-only in the UI per plan 6-4; this keeps Read correct
+       for the day it is reachable.) */
+    const readSource = isPackage
+      ? pkg.materialize({ content: source, packageAssets: assets, entryPath: doc.entryPath || 'index.html' }, preview.newSession(), '', '').html
+      : source;
     const state = await ctx.readingState();
     mounted = preview.mount(stage, {
-      html: preview.ensureViewport(sanitizeDocument(source)),
+      html: preview.ensureViewport(sanitizeDocument(readSource)),
       allowScripts: false,
       title: doc.title,
       restoreY: state.scrollY || 0,
       onScroll: (y) => ctx.saveReading({ scrollY: y }),
       onOpen: (url) => ctx.openExternal(url),
+      onOpenAsset: (path) => ctx.openAsset(path),
     });
   }
 
@@ -171,6 +197,7 @@ export async function render(ctx) {
       restoreY: state.scrollY || 0,
       onScroll: (y) => ctx.saveReading({ scrollY: y }),
       onOpen: (url) => ctx.openExternal(url),
+      onOpenAsset: (path) => ctx.openAsset(path),
       onIssue: addIssue,
     });
   }

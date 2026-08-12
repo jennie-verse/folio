@@ -351,3 +351,117 @@ folio 실기기 확인 후 사용자 지시가 있을 때만).
 
 4장 Pending 17건은 그대로입니다. 특히 1~3번(Run 실제 실행·외부 요청 0건·Read
 재확인)은 이제 **실기기에서 배포 URL로 바로 확인**할 수 있습니다.
+
+---
+
+## 9. 패키지 자산 손실 수정 (2026-08-12, `2026.08.12-pkglink1`)
+
+지시서: `Plan/folio_package-link-fix/Folio_Package_Link_Fix_2026-08-12.md`
+증상: 샘플 두 ZIP에서 첫 화면은 정상인데 `pdf` `svg` `png` 링크를 누르면
+`folio-missing-asset` 이 뜸.
+
+`Published/folio/` 를 그 자리에서 고쳐 다시 배포했습니다. 3-0 진단(실기기에서
+`Needs file` 배지·`Preview issues` 건수 확인)은 사용자 확인 항목이라 기다리지
+않고 진행했습니다 — 두 결함 모두 코드에서 재현·수정·검증했습니다.
+
+### 9-1. 결함 A — 해제가 자산을 지우고 재연결이 되살리지 않음
+
+| 파일 | 고친 내용 |
+|---|---|
+| `src/relink.js` | `packagePatch()` 추가. `kind === 'html-package'` 면 고른 파일을 `pkg.importZip()` 으로 다시 풀어 `putPackageAssets()` 하고 `entryPath` `entryContent` `packageFileCount` `packageAssetsReleased:false` 를 함께 갱신합니다. **해시 일치 경로와 `Link anyway` 경로 양쪽**에 적용했고, ZIP 해제가 실패하면 `This ZIP could not be read.` 를 띄우고 **아무것도 바꾸지 않은 채 취소**합니다 |
+| `src/retention.js` | 패키지를 해제할 때만 자산을 지우고 `packageAssetsReleased: true` 를 기록합니다. 해제 정책 자체는 계획서 7장 그대로 두었습니다 |
+| `src/handlers/html.js` | 자산이 0개면 Read·Run 어느 쪽도 렌더하지 않고 `This package's files are missing. Reconnect the original ZIP.` + `Reconnect` 버튼을 띄웁니다 |
+| `src/app.js` | `Needs file` 흐름을 `reconnectDocument()` 로 분리해 뷰어의 `Reconnect` 버튼도 같은 경로를 씁니다 |
+
+**실측** — 두 샘플을 넣고(자산 25·35개) 40일 방치 상태로 만들어 해제 →
+자산 0개·`packageAssetsReleased:true`·`entryContent` 는 보존 → 원본 ZIP으로
+재연결 → **자산 25·35개 전부 복원**, 플래그 해제, 진입점 `mindmap-5/index.html`
+유지, `Preview issues (0)` 으로 정상 렌더.
+
+배포된 판이 남긴 상태(`released:false` 인데 자산 0개)도 그대로 재현해
+안내 화면이 뜨는 것을 확인했습니다.
+
+### 9-2. 결함 B — 앵커로만 닿는 자산을 인라인하지 않음
+
+| 파일 | 고친 내용 |
+|---|---|
+| `src/package.js` | `collectRefs()` 가 **그려야 하는 참조**(`img` `source` `poster` `srcset` `data` CSS `url()` `@import` 스타일시트)와 **앵커 참조**를 나눠 모으고, `inlinePaths()` 가 **앵커에만 있고 그리지 않는** 자산을 맵에서 뺍니다. 분류는 `rewriteStatic()` **이전**에 합니다 — 그 뒤에는 원래 경로가 남지 않습니다 |
+| | 앵커는 data: URL로 바꾸지 않고 `data-folio-path` 에 패키지 경로를 남깁니다. shim 런타임(정적·동적·`innerHTML`·MutationObserver 경로 전부)도 같게 동작합니다 |
+| | 맵에서 빠진 자산도 `known` 에 남아 링크 태깅이 됩니다. 해석 실패는 지금처럼 `asset-error` |
+| `src/preview.js` | `instrument()` 클릭 핸들러 맨 앞에 분기 추가 — `data-folio-path` 가 있으면 `preventDefault()` 후 `post("open-asset")`. `#`·`download`·`javascript:`·http(s)·mailto·tel·sms 처리는 그대로. `mount()` 이 `options.onOpenAsset(path)` 로 넘깁니다 (세션 검사 동일) |
+| `src/app.js` | `openPackageAsset()` — base64 → `Uint8Array` → `Blob` 을 **folio 쪽에서** 만들고 `detect()` 로 형식을 판정해 제 뷰어로 엽니다. 맵에 없으면 `This file is not in the package.`, 뷰어가 없으면 내보내기를 제안합니다 |
+| `src/handlers/html.js` | Read·Run 양쪽 `preview.mount()` 에 `onOpenAsset` 을 넘깁니다. 패키지 Read는 materialize 후 정화하도록 바꿔 이미지가 해석되고 링크가 `data-folio-path` 를 갖습니다. DOMPurify 에 `ADD_ATTR: ['data-folio-path']` 를 넣어 이 속성만 통과시킵니다 |
+
+**실측 (`tests/package-map.test.html`, 13/13 통과)**
+
+| | 이전 | 이후 |
+|---|---|---|
+| `mindmap.zip` materialize | 3.25 MB | **16.4 KB** (링크 23개 태깅) |
+| `mindmap-.zip` materialize | 16.39 MB | **18.2 KB** (링크 34개 태깅) |
+| materialize 경고 | 0건 | 0건 |
+
+혼합 케이스도 확인했습니다 — 링크로만 닿는 PDF는 맵에서 **빠지고**, `<img>` 로
+그리는 파일은 **남고**, `<img>` 와 `<a>` 양쪽에 쓰인 파일은 **인라인 유지**,
+아무도 참조하지 않는 파일도 **유지**(앵커 전용만 제외).
+
+자산이 뷰어로 제대로 흘러가는지도 실제 패키지 데이터로 확인했습니다 —
+`.pdf` → `pdf`, `.png`/`.svg` → `image`, `.txt` → `text` 로 판정되고, 패키지에서
+꺼낸 PDF 바이트가 원본 파일과 길이까지 일치합니다.
+
+### 9-3. 수정 중 발견해 고친 결함 (제 리팩터링 실수)
+
+뷰어 마운트를 `showInViewer()` 로 분리하면서 하단 바 분기에 옛 변수명(`fresh`)이
+남아 **문서를 열 때마다 `ReferenceError` 가 나고 있었습니다.** 프레임은 이미
+붙은 뒤라 화면은 멀쩡해 보였지만, 그 뒤의 문서 글자 크기 적용·본문 제스처
+연결·하단 바 구성이 전부 실행되지 않았습니다. CSP 대조용 빈 페이지를 띄웠다가
+콘솔에서 발견했습니다.
+
+`record.kind` 로 고쳤고, 재확인 결과 **텍스트·CSV·PDF·이미지·HTML·패키지를
+모두 열고 닫는 동안 오류 0건**, CSV 하단이 `Row 2 / 2`, PDF 하단이 `1 / 1` 로
+정상 표시됩니다.
+
+### 9-4. 완료 조건
+
+| 3-1 기계 검사 | 결과 |
+|---|---|
+| 동일 출처 샌드박스 토큰 (전체 트리) | 0건 |
+| `npm test` | **32/32 통과** (기존 27 + 신규 5) |
+| `npm run test:syntax` | 통과 |
+| 기존 검사 7종 | 전부 유지 |
+| 재연결 시 `packageAssets` 복원 | 테스트로 고정 (양쪽 경로 + 실패 시 취소) |
+| 자산 빈 패키지는 렌더 안 함 | 테스트로 고정 |
+| 앵커 전용 자산이 맵에서 빠짐 | 테스트로 고정 (배선) + 브라우저 하네스 실측 |
+| `<img>` 자산은 인라인 유지 | 브라우저 하네스 실측 |
+| `<img>`+`<a>` 양쪽이면 인라인 유지 | 브라우저 하네스 실측 |
+| 두 샘플이 100 KB 미만 | 브라우저 하네스 실측 (16.4 KB · 18.2 KB) |
+
+> **왜 일부가 브라우저 하네스인가** — `materialize()` 는 파싱된 DOM을 순회하고
+> Node에는 DOM이 없습니다. 의존성을 추가하면 `npm test` 가 오프라인·무빌드로
+> 도는 성질을 잃으므로, vault가 `tests/package.test.html` 을 두던 방식 그대로
+> `tests/package-map.test.html` 을 만들었습니다. `npm test` 에는 **분류가 조용히
+> 우회될 수 없도록 배선**(분류가 rewrite보다 먼저인지, `keep` 이 shim에 전달되는지,
+> 그리기·링크 겸용 규칙이 살아 있는지)을 고정해 두었습니다.
+
+| 3-3 버전 | 결과 |
+|---|---|
+| `sw.js` VERSION · `src/version.js` APP_BUILD | 둘 다 `2026.08.12-pkglink1` |
+| 캐시 이름 | `folio-shell-2026.08.12-pkglink1` 등으로 따라 바뀜 (실측) |
+
+콘솔 오류 0건, folio가 만든 CSP 위반 0건. 검토 창에 찍히는 `style-src` 위반
+19건은 이번에도 **스크립트도 스타일도 없는 빈 페이지에서 그대로 재현**되므로
+folio 원인이 아닙니다(3-3과 동일).
+
+### 9-5. 실기기 확인 필요 (Pending 추가)
+
+샌드박스 iframe이 검토 창에서 차단되는 제약은 그대로입니다. 이번 수정의
+클릭 동선은 실기기에서 확인해 주세요.
+
+| # | 항목 |
+|---|---|
+| 18 | 패키지의 `pdf` 링크 → folio PDF 뷰어에서 열리고 한글이 깨지지 않는지, 목차·검색이 되는지 |
+| 19 | `svg` · `png` 링크 → 이미지 뷰어에서 열리고 확대·회전이 되는지 |
+| 20 | 뒤로 가면 패키지 화면과 **스크롤 위치**가 복원되는지 |
+| 21 | 해제 → 재연결 왕복 뒤에도 링크가 전부 살아 있는지 (실기기 재확인) |
+| 22 | `Preview issues` 0건 유지 |
+
+4장의 기존 Pending 1~17은 그대로입니다.
