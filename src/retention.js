@@ -23,15 +23,18 @@ async function releaseDocs(docs) {
     const shared = others.some((row) => row.id !== doc.id && !row.deletedAt && row.pinned);
     if (shared) continue;
     await dropFile(doc.fileHash);
-    // A package's assets go with its bytes, so the record says so. Reconnecting
-    // rebuilds them from the ZIP and clears the flag; until then the viewer
-    // refuses to draw a page whose every internal link is dead.
-    const assetsGone = doc.kind === 'html-package';
-    if (assetsGone) await db.packageAssets.where('docId').equals(doc.id).delete();
+    /* A package's assets go with its bytes, so the record says so. The flag is
+       set only when rows were actually deleted — a ZIP that held nothing but
+       its entry HTML has no assets to lose and must still open normally.
+       Reconnecting rebuilds the assets and clears the flag; until then the
+       viewer refuses to draw a page whose every internal link is dead. */
+    const assetsGone = doc.kind === 'html-package'
+      ? await db.packageAssets.where('docId').equals(doc.id).delete()
+      : 0;
     await db.documents.put({
       ...doc,
       released: true,
-      ...(assetsGone ? { packageAssetsReleased: true } : {}),
+      ...(assetsGone > 0 ? { packageAssetsReleased: true } : {}),
       updatedAt: Date.now(),
     });
     released += 1;

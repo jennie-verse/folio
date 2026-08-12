@@ -38,6 +38,27 @@ export async function extractText(blob, doc) {
   };
 }
 
+/**
+ * Has this package lost its assets?
+ *
+ * An empty asset map is not by itself a fault — a ZIP holding nothing but
+ * `index.html` legitimately has none, and blocking those was the regression
+ * this replaces. The fault is assets that are *gone*, which shows up two ways:
+ *
+ *   · `packageAssetsReleased` — a release deleted them (current builds);
+ *   · more files at import than the entry alone — the document was broken by
+ *     build 2026.08.12-init1, whose release deleted the assets and whose
+ *     reconnect cleared `released` without restoring them or setting the flag.
+ *
+ * The second test is what still protects documents already on a device; the
+ * flag alone cannot see them, because it did not exist when they broke.
+ */
+export function packageAssetsMissing(doc, assets) {
+  if (!doc || doc.kind !== 'html-package') return false;
+  if (assets && Object.keys(assets).length > 0) return false;
+  return Boolean(doc.packageAssetsReleased) || Number(doc.packageFileCount) > 1;
+}
+
 /** Read mode markup. DOMPurify returns a DOM tree; `outerHTML` only reads it
     back for the sandbox's srcdoc — no markup is ever assigned to an element.
     Exported so the review can assert on the exact string Read mode renders. */
@@ -59,11 +80,11 @@ export async function render(ctx) {
     source = (await decodeBlob(ctx.blob, doc.encoding)).text;
   }
 
-  /* A package without its assets is not a document that renders badly — it is
-     a document folio no longer has. The entry HTML alone would draw a page
-     that looks fine and whose every internal link is dead, which misleads
-     rather than informs. */
-  if (isPackage && (!assets || Object.keys(assets).length === 0)) {
+  /* A package that has LOST its assets is not a document that renders badly —
+     it is a document folio no longer has. The entry HTML alone would draw a
+     page that looks fine and whose every internal link is dead, which misleads
+     rather than informs. A package that never had assets renders normally. */
+  if (packageAssetsMissing(doc, assets)) {
     body.classList.add('pad');
     clear(body);
     body.appendChild(el('div', { class: 'empty' }, [

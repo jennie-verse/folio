@@ -255,11 +255,44 @@ test("releasing a package records that its assets went with the bytes", () => {
   assert.match(retention, /packageAssetsReleased: true/);
 });
 
-test("a package with no assets refuses to render", () => {
+test("a package that LOST its assets refuses to render", async () => {
   const html = read("src/handlers/html.js");
-  assert.match(html, /isPackage && \(!assets \|\| Object\.keys\(assets\)\.length === 0\)/);
   assert.match(html, /This package's files are missing\. Reconnect the original ZIP\./);
   assert.match(html, /text: 'Reconnect'/);
+  assert.match(html, /if \(packageAssetsMissing\(doc, assets\)\)/, "the guard must go through the shared test");
+
+  const { packageAssetsMissing } = await import("../src/handlers/html.js");
+  const pkgDoc = (extra) => ({ kind: "html-package", ...extra });
+
+  // The regression this replaces: a ZIP holding nothing but index.html has no
+  // assets and must still open.
+  assert.equal(packageAssetsMissing(pkgDoc({ packageFileCount: 1 }), {}), false,
+    "a single-file package legitimately has no assets");
+  assert.equal(packageAssetsMissing(pkgDoc({ packageFileCount: 1 }), null), false);
+
+  // Assets deleted by a release on a current build.
+  assert.equal(packageAssetsMissing(pkgDoc({ packageFileCount: 1, packageAssetsReleased: true }), {}), true,
+    "the released flag alone is enough");
+  assert.equal(packageAssetsMissing(pkgDoc({ packageFileCount: 25, packageAssetsReleased: true }), {}), true);
+
+  // Broken by build 2026.08.12-init1: released and reconnected before the flag
+  // existed, so only the import file count can still see it.
+  assert.equal(packageAssetsMissing(pkgDoc({ packageFileCount: 25 }), {}), true,
+    "a package imported with 25 files and now holding none has lost them");
+
+  // A healthy package, and anything that is not a package.
+  assert.equal(packageAssetsMissing(pkgDoc({ packageFileCount: 25 }), { "a.svg": {} }), false);
+  assert.equal(packageAssetsMissing(pkgDoc({ packageFileCount: 25, packageAssetsReleased: true }), { "a.svg": {} }), false,
+    "assets present beat a stale flag");
+  assert.equal(packageAssetsMissing({ kind: "html", packageFileCount: 25 }, {}), false);
+  assert.equal(packageAssetsMissing(null, {}), false);
+});
+
+test("releasing flags only packages that actually had assets", () => {
+  const retention = read("src/retention.js");
+  assert.match(retention, /await db\.packageAssets\.where\('docId'\)\.equals\(doc\.id\)\.delete\(\)/);
+  assert.match(retention, /assetsGone > 0 \? \{ packageAssetsReleased: true \}/,
+    "a package with nothing to delete must not be flagged");
 });
 
 test("a package link is handed to folio, never navigated to a data: URL", () => {
