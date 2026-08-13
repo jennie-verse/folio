@@ -637,3 +637,100 @@ packageFileCount > 1 인데 0개 → 잃음 (배포된 init1 이 망가뜨린 �
   뜨지 않음) 9~10장과 같은 제약이 그대로입니다. 이 결함이 실기기에서만
   드러난 이유이기도 합니다 — 정적 검사로는 "타입이 목록에 있는가"는 볼 수
   있어도 "메시지가 실제로 도착하는가"는 실행해야만 보입니다
+
+---
+
+## 12. preview-host.html 옛 사본 고정 문제 수정 (`2026.08.12-pkglink4`)
+
+11장에서 고친 중계 목록은 코드로 정확했습니다. 사용자가 `preview-host.html`
+의 실제 스크립트를 직접 실행해 중계 로직 자체가 맞다는 것을 확인했습니다.
+문제는 로직이 아니라 **그 파일이 기기에 옛 사본으로 남을 수 있는 캐시
+구조**였습니다.
+
+### 12-1. 원인 1 — `preview-host.html` 만 navigate 분기를 탐
+
+`preview.mount()` 는 `<iframe src="preview-host.html">` 로 이 파일을 불러오는데,
+iframe에 `src` 를 설정하는 요청은 브라우저가 **`mode: 'navigate'`** 로
+보냅니다 — 사용자가 앱을 여는 최상위 내비게이션과 같은 신호입니다.
+
+`sw.js` 의 fetch 핸들러는 `mode==='navigate'` 인 요청을 **네트워크 우선**
+분기로 보냅니다. 이 분기는 원래 "새로 배포한 판이 두 번째 실행이 아니라
+첫 실행에서 뜨게" 하려고 최상위 앱 진입점(`index.html`)을 위해 만든
+정책인데, `preview-host.html` 도 같은 신호(`mode:'navigate'`)를 내서
+**의도치 않게 같은 분기를 탔습니다.**
+
+`src/app.js` `src/preview.js` 같은 다른 셸 파일은 `<script type=module>`
+이나 동적 `import()` 로 불러와 `mode` 가 `'same-origin'` 이라 캐시 우선
+분기를 그대로 탑니다. **`preview-host.html` 만 유일하게** 버전 캐시를
+건너뛰었습니다.
+
+네트워크 우선 분기는 성공하면 응답을 `cache.put()` 으로 **현재 버전
+캐시에 덮어씁니다.** 이 URL에는 버전 표시가 없으므로, 응답이 (브라우저의
+HTTP 캐시 등) 중간 캐시에서 나온 옛 바이트라면 **방금 설치로 넣은 새
+버전 사본을 옛 것으로 덮어씁니다.** `preview.js` 는 이미 새 버전인데
+`preview-host.html` 만 옛 판으로 남는 조합이 만들어지고, 이 조합에서
+링크가 조용히 무반응이 됩니다.
+
+**고침** — `preview-host.html` 은 navigate 분기에서 제외하고, 다른 셸
+파일과 똑같이 캐시 우선(버전 캐시) 경로를 타게 했습니다.
+
+```diff
+- if (event.request.mode === 'navigate') {
++ if (event.request.mode === 'navigate' && !url.pathname.endsWith('/preview-host.html')) {
+```
+
+### 12-2. 원인 2 — `install` 의 `cache.addAll()` 이 옛 HTTP 캐시를 담을 수 있음
+
+`cache.addAll(ASSETS)` 는 내부적으로 평범한 `fetch()` 를 씁니다. 옵션을
+안 주면 브라우저의 **HTTP 캐시**를 그대로 따르는데, GitHub Pages가 이
+파일들에 `Cache-Control` 을 붙이고 URL에는 버전 구분자가 없으므로,
+설치 시점에 HTTP 캐시가 아직 안 만료됐다면 **네트워크를 안 타고 옛
+바이트로 새 버전 캐시를 채울 수 있습니다.** 이러면 버전을 올려도 설치가
+끝나기 전부터 이미 옛 내용이 들어갑니다.
+
+**고침** — `installFresh()` 를 만들어 각 자산을
+`new Request(path, {cache:'reload'})` 로 감싸 HTTP 캐시를 건너뛰고
+네트워크에서 직접 받습니다. 실패 시 동작은 `addAll()` 과 같게 유지했습니다
+— 응답이 `ok` 가 아니면 던지고, `Promise.all` 이 reject해 `install()` 이
+실패합니다("여기 있는 파일은 전부 있어야 합니다"라는 기존 보장 유지).
+
+### 12-3. 실측
+
+로컬 검토 서버에서 캐시를 완전히 지우고 새로 설치한 뒤 확인했습니다.
+
+| 확인 | 결과 |
+|---|---|
+| 새 캐시 이름 | `folio-shell-2026.08.12-pkglink4` |
+| 캐시에 들어간 `preview-host.html` 내용에 `open-asset` | 포함됨 |
+| 빌드 표시 | `Build 2026.08.12-pkglink4` |
+| SW 제어 상태 | `swControlled: true` |
+| 콘솔 오류·CSP 위반 | 0건 |
+| 단일 파일 ZIP 반입 → Run → `Preview issues (0)` | 기존 동작 유지, 회귀 없음 |
+
+### 12-4. 회귀 테스트
+
+`tests/static.test.mjs` 에 두 건을 추가했습니다. **사용자가 요청한 1번을
+정적 검사로 고정**했고, 2번 고침도 같은 방식으로 함께 고정했습니다.
+
+- `preview-host.html is excluded from the network-first navigate branch` —
+  navigate 분기 조건문에서 `!url.pathname.endsWith('/preview-host.html')`
+  가 있는지 정규식으로 확인
+- `shell assets install with cache:'reload', bypassing the HTTP cache` —
+  `cache.addAll(ASSETS)` 가 없고 `installFresh()` 가 `{cache:'reload'}` 로
+  각 자산을 받는지 확인
+
+**두 테스트 모두 실제로 각자의 결함을 잡는지 직접 증명했습니다** — 각
+고침을 하나씩만 되돌려 실행하면 그 테스트만 실패하고 다른 34개는 그대로
+통과합니다. 되돌리지 않은 상태에서는 36개 전부 통과합니다.
+
+### 12-5. 완료 조건
+
+| | 결과 |
+|---|---|
+| `npm test` | **36/36** (10-4 이후 4건 추가) |
+| `npm run test:syntax` | 통과 |
+| 동일 출처 샌드박스 토큰 · 기존 검사 7종 | 유지 |
+| `VERSION` ↔ `APP_BUILD` | 둘 다 `2026.08.12-pkglink4` |
+| 콘솔 오류 · CSP 위반 | 0건 |
+
+실기기 클릭 확인은 사용자가 다시 진행합니다.

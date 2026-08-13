@@ -8,7 +8,7 @@
 // PDF.js is about 5 MB. Precaching it would make the very first install slow
 // for someone who may never open a PDF, so it is fetched on demand and then
 // kept.
-const VERSION = '2026.08.12-pkglink3';   // must match APP_BUILD in src/version.js
+const VERSION = '2026.08.12-pkglink4';   // must match APP_BUILD in src/version.js
 
 const SHELL  = `folio-shell-${VERSION}`;
 const PDFJS  = `folio-pdfjs-${VERSION}`;
@@ -91,10 +91,26 @@ const ASSETS = [
 // would make one missing file break the whole Service Worker install.
 const OPTIONAL = ['../shared/v1/sync.js'];
 
+/* cache.addAll() calls plain fetch() under the hood, which is free to answer
+   from the browser's own HTTP cache. GitHub Pages sends a Cache-Control on
+   these files, and none of the shell URLs carry a version query string, so a
+   stale HTTP-cache hit here would seed a brand-new versioned Cache Storage
+   entry with bytes from the OLD deploy — defeating the version bump before
+   install even finishes. {cache:'reload'} forces every install-time fetch to
+   the network. Failure semantics match addAll(): any non-OK response throws,
+   Promise.all rejects, and install() fails (pkglink4 fix). */
+async function installFresh(cache, urls) {
+  await Promise.all(urls.map(async (path) => {
+    const response = await fetch(new Request(path, { cache: 'reload' }));
+    if (!response.ok) throw new Error(`Shell asset failed to install: ${path} (${response.status})`);
+    await cache.put(path, response);
+  }));
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(SHELL);
-    await cache.addAll(ASSETS);
+    await installFresh(cache, ASSETS);
     await Promise.all(OPTIONAL.map((path) => cache.add(new URL(path, self.registration.scope)).catch(() => null)));
     await self.skipWaiting();
   })());
@@ -124,7 +140,19 @@ self.addEventListener('fetch', (event) => {
   // Navigations are network-first so a fresh deploy lands on the FIRST launch
   // instead of the second, with a bounded wait so a slow or captive network
   // never stalls an offline-first start.
-  if (event.request.mode === 'navigate') {
+  //
+  // preview-host.html is excluded even though setting an <iframe src> to it
+  // also fires a request with mode:'navigate' — that is a nested browsing
+  // context, not a user opening the app. It is a versioned shell file paired
+  // one-to-one with preview.js, and it must resolve exactly like every other
+  // shell file: cache-first, from whichever version's cache this Service
+  // Worker instance owns. Routing it through network-first meant a success
+  // response — itself possibly served from a stale intermediate cache, since
+  // the URL carries no version marker — would overwrite the freshly installed,
+  // version-matched copy with old bytes. That decoupled it from preview.js and
+  // made package links silently dead on devices that had it happen to them
+  // (pkglink4 fix).
+  if (event.request.mode === 'navigate' && !url.pathname.endsWith('/preview-host.html')) {
     event.respondWith((async () => {
       const cache = await caches.open(SHELL);
       try {

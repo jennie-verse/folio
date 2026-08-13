@@ -92,6 +92,32 @@ test("the shared sync module is an optional cache entry, never in addAll", () =>
   assert.doesNotMatch(assetsBlock, /shared\/v1/, "a missing shared module must not fail the install");
 });
 
+/* preview-host.html is a versioned shell file paired one-to-one with
+   preview.js, but setting an <iframe src> to it fires a request with
+   mode:'navigate' — the same signature as a user opening the app. If it stays
+   inside the network-first navigate branch, a response served from a stale
+   intermediate cache (the URL carries no version marker) overwrites the
+   freshly installed, version-matched copy — decoupling it from preview.js and
+   making package links silently dead, which is exactly what shipped in
+   pkglink3 despite the underlying relay fix being correct. */
+test("preview-host.html is excluded from the network-first navigate branch", () => {
+  const navigateGuard = /if \(event\.request\.mode === 'navigate' && (.+?)\) \{/.exec(sw);
+  assert.ok(navigateGuard, "the navigate branch's condition must be inspectable");
+  assert.match(navigateGuard[1], /!url\.pathname\.endsWith\('\/preview-host\.html'\)/,
+    "excluding it routes it through the same cache-first path as every other shell file");
+});
+
+/* cache.addAll() calls plain fetch(), which may be satisfied from the
+   browser's own HTTP cache — none of these URLs carry a version query string,
+   so a stale HTTP-cache hit at install time seeds a brand-new versioned Cache
+   Storage entry with bytes from the OLD deploy, defeating the version bump
+   before install even finishes. */
+test("shell assets install with cache:'reload', bypassing the HTTP cache", () => {
+  assert.doesNotMatch(sw, /await cache\.addAll\(ASSETS\)/, "addAll() can be satisfied from a stale HTTP cache entry");
+  assert.match(sw, /new Request\(path, \{ cache: 'reload' \}\)/);
+  assert.match(sw, /await installFresh\(cache, ASSETS\)/);
+});
+
 test("PDF.js is deployed without its script sandbox", () => {
   assert.ok(!existsSync(join(root, "vendor/pdfjs/pdf.sandbox.min.mjs")));
   assert.ok(!existsSync(join(root, "vendor/pdfjs/wasm/quickjs-eval.wasm")));
