@@ -148,6 +148,50 @@ test("Run keeps its shims and 300-character error limit", () => {
   assert.doesNotMatch(previewJs, SAME_ORIGIN);
 });
 
+/* The host relays inner-frame messages by string allowlist (preview-host.html
+   has no import graph to type-check, so nothing else can). A type sent from
+   inside the sandbox or expected by mount() but missing from that allowlist
+   is silently dropped in transit — the message never reaches the app, and
+   nothing throws anywhere, so no console error ever points at the cause.
+   'open-asset' shipped exactly this way in pkglink2: instrument() sent it,
+   mount() handled it, and the host's allowlist — untouched since the first
+   deploy — did not carry it, so every package link was a dead click. */
+test("every inner-frame message type the app sends or expects is in the host's relay allowlist", () => {
+  const relayMatch = /\[('[a-z-]+'(?:,'[a-z-]+')*)\]\.indexOf\(d\.type\)/.exec(host);
+  assert.ok(relayMatch, "preview-host.html must relay by an explicit allowlist");
+  const relay = new Set(relayMatch[1].split(",").map((s) => s.replace(/'/g, "")));
+
+  // What instrument() (injected into every rendered document) actually sends.
+  const instrumentBody = /export function instrument\(session\) \{[\s\S]*?\n\}/.exec(previewJs)[0];
+  const sentByInstrument = new Set([...instrumentBody.matchAll(/p\(\\?"([a-z-]+)\\?"/g)].map((m) => m[1]));
+  assert.ok(sentByInstrument.size >= 4, "sanity check: instrument() sends must actually be found");
+
+  // What the package shim (a second, independent sender — package.js, not
+  // preview.js) sends for asset resolution failures and runtime errors.
+  const shimBody = /function shim\(doc,baseDir,sessionId,keep\)\{[\s\S]*?\n  \}/.exec(read("src/package.js"))[0];
+  const sentByShim = new Set([...shimBody.matchAll(/post\(\\?"([a-z-]+)\\?"/g)].map((m) => m[1]));
+  assert.ok(sentByShim.size >= 1, "sanity check: shim() sends must actually be found");
+
+  // What mount()'s onMessage branches on, downstream of the relay — excluding
+  // 'bootstrap-ready', which the host announces on its own and is checked
+  // BEFORE the session guard, so it never depends on the relay allowlist.
+  const onMessageBody = /function onMessage\(event\) \{[\s\S]*?\n  \}/.exec(previewJs)[0];
+  const handledByMount = new Set(
+    [...onMessageBody.matchAll(/data\.type === '([a-z-]+)'/g)].map((m) => m[1]).filter((t) => t !== "bootstrap-ready"),
+  );
+  assert.ok(handledByMount.size >= 5, "sanity check: mount() handlers must actually be found");
+
+  for (const type of sentByInstrument) {
+    assert.ok(relay.has(type), `instrument() sends '${type}' but preview-host.html does not relay it`);
+  }
+  for (const type of sentByShim) {
+    assert.ok(relay.has(type), `the package shim sends '${type}' but preview-host.html does not relay it`);
+  }
+  for (const type of handledByMount) {
+    assert.ok(relay.has(type), `mount() handles '${type}' but preview-host.html does not relay it — the message can never arrive`);
+  }
+});
+
 test("Read mode is sanitized and the document frame is script-free", () => {
   const html = read("src/handlers/html.js");
   assert.match(html, /DOMPurify\.sanitize/);

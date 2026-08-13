@@ -543,3 +543,97 @@ packageFileCount > 1 인데 0개 → 잃음 (배포된 init1 이 망가뜨린 �
 | 콘솔 오류 · CSP 위반 | 0건 |
 
 9-5의 실기기 Pending 5건(클릭 동선·스크롤 복원)은 그대로입니다.
+
+---
+
+## 11. 링크 클릭 무반응 수정 (2026-08-12, `2026.08.12-pkglink3`)
+
+실기기 확인 결과: 9~10장에서 고친 패키지 링크가 **여전히 아무 반응이 없었습니다.**
+사용자가 원인을 직접 찾아 알려주었습니다.
+
+### 11-1. 원인
+
+`preview-host.html` 은 안쪽 문서 프레임에서 오는 메시지를 화이트리스트로
+중계합니다.
+
+```js
+['ready','scroll','open','asset-error','runtime-error'].indexOf(d.type)>=0
+```
+
+9-2에서 `instrument()` 가 보내도록 추가한 `open-asset` 이 이 목록에
+**빠져 있었습니다.** 링크를 누르면 안쪽 프레임은 `open-asset` 을 정상적으로
+보냈지만, 중계기가 목록에 없는 타입을 조용히 버려 부모 앱(`mount()`)은
+아무것도 받지 못했습니다 — 오류도, 콘솔 로그도 없이 그냥 무반응이었습니다.
+
+`preview-host.html` 은 **첫 배포(`72cfdb6`) 이후 이 지점을 한 번도 고치지
+않았습니다.** 9-2 작업 때 `preview.js`(발신 측)와 `src/app.js`(수신 측)는
+고쳤지만, 그 사이를 잇는 `preview-host.html` 의 화이트리스트는 놓쳤습니다.
+
+### 11-2. 재확인 — 다른 누락은 없는지 전수 대조
+
+세 파일에서 실제 쓰이는 메시지 타입을 전부 뽑아 대조했습니다.
+
+| 발신 | 타입 |
+|---|---|
+| `instrument()` (`preview.js`, 일반 HTML·패키지 공통 진단 스크립트) | `scroll` `runtime-error` `open-asset` `open` `ready` |
+| `shim()` (`package.js`, 패키지 전용 자산 해석기) | `asset-error` `runtime-error` |
+| **합집합** | `scroll` `runtime-error` `open-asset` `open` `ready` `asset-error` (6개) |
+
+| 수신 (`mount()` 의 `onMessage`, 중계에 의존하는 것만 — `bootstrap-ready` 는
+세션 대조 이전에 호스트 자신이 직접 보내는 별개 채널이라 제외) | 타입 |
+|---|---|
+| | `scroll` `open` `open-asset` `asset-error` `runtime-error` `ready` (6개) |
+
+**중계 목록(수정 후)**: `ready` `scroll` `open` `open-asset` `asset-error`
+`runtime-error` (6개) — 위 두 집합과 정확히 일치합니다. `open-asset` 외에
+다른 누락은 없었습니다.
+
+### 11-3. 고친 내용
+
+`preview-host.html` 한 줄만 고쳤습니다.
+
+```diff
+- ['ready','scroll','open','asset-error','runtime-error']
++ ['ready','scroll','open','open-asset','asset-error','runtime-error']
+```
+
+**`sw.js` 의 `VERSION` 과 `src/version.js` 의 `APP_BUILD` 를 함께
+`2026.08.12-pkglink3` 로 올렸습니다.** `preview-host.html` 은 셸 캐시에
+들어 있어 캐시 우선으로 서빙됩니다 — 버전을 올리지 않으면 캐시 이름이
+그대로라 기기에 이미 깔린 옛 `preview-host.html` 이 계속 쓰였을 것입니다.
+
+### 11-4. 회귀 테스트
+
+`tests/static.test.mjs` 에 위 3파일을 정적으로 대조하는 테스트를
+추가했습니다 — 정규식으로 각 파일에서 실제 문자열 리터럴을 뽑아 집합
+연산으로 비교합니다.
+
+- `instrument()` 가 보내는 모든 타입이 중계 목록에 있는지
+- `shim()` 이 보내는 모든 타입이 중계 목록에 있는지
+- `mount()` 가 처리하는 모든 타입(`bootstrap-ready` 제외)이 중계 목록에
+  있는지
+
+**이 테스트가 실제로 이 결함을 잡는지 직접 증명했습니다** — 중계 목록을
+결함이 있던 원래 상태로 되돌려 실행하면 이 테스트만 실패하고, 고친 상태로
+되돌리면 34개 전부 통과합니다. 미래에 `p("새타입", …)` 이나
+`data.type === '새타입'` 을 추가하면서 `preview-host.html` 을 빠뜨리면
+이번처럼 조용히 죽지 않고 테스트가 실패합니다.
+
+### 11-5. 검증 범위와 한계
+
+확인한 것:
+
+- `npm test` **34/34**, `npm run test:syntax` 통과
+- 동일 출처 샌드박스 토큰 0건, 기존 검사 7종 유지
+- `VERSION` ↔ `APP_BUILD` 일치, 캐시 이름이 `folio-shell-2026.08.12-pkglink3`
+  로 바뀜을 실측
+- Service Worker가 새로 설치한 셸 캐시 안의 `preview-host.html` 에
+  `open-asset` 이 실제로 들어 있음을 Cache Storage에서 직접 읽어 확인
+
+확인하지 못한 것:
+
+- **실제 클릭 → 링크 열림 자체는 이번에도 확인하지 못했습니다.** 검토
+  환경이 샌드박스 iframe 요청을 전부 차단해(`preview-host.html` 자체가
+  뜨지 않음) 9~10장과 같은 제약이 그대로입니다. 이 결함이 실기기에서만
+  드러난 이유이기도 합니다 — 정적 검사로는 "타입이 목록에 있는가"는 볼 수
+  있어도 "메시지가 실제로 도착하는가"는 실행해야만 보입니다
