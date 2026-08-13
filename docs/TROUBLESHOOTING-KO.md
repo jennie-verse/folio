@@ -98,6 +98,26 @@ Files.` 가 나오면 이 기기가 그 형식을 그리지 못하는 것입니�
 
 ---
 
+## ZIP 안의 PDF·PNG·SVG 링크를 눌러도 반응이 없습니다
+
+먼저 **설정 → About → Build** 를 확인하세요. `2026.08.12-pkglink6` 보다
+낮으면 옛 판이 남아 있는 것입니다 — 앱을 완전히 닫았다 다시 여세요.
+
+최신 판인데도 특정 링크만 죽어 있다면, 그 파일이 ZIP 안에 없는 것입니다.
+아래쪽 **Preview issues** 에 `Missing package asset: png/…` 처럼 찾지 못한
+경로가 그대로 나옵니다. HTML이 `png/그림.png` 를 가리키는데 ZIP 안에서는
+`그림.png` 가 최상위에 있는 식으로, 폴더 구조가 압축할 때 평평해진 경우가
+가장 흔합니다. 폴더를 통째로 압축해 다시 넣으면 해결됩니다.
+
+문서 목록에 `Needs file` 배지가 없는데도 열면 "This package's files are
+missing."이 뜬다면 — 예전에 저장 공간 확보로 이 문서가 해제됐다가, 같은
+ZIP을 **Reconnect 버튼이 아니라 Import files로 다시 넣어** 재연결된
+경우입니다(`2026.08.12-pkglink6` 이전). 문서를 열어 뜨는 **Reconnect**
+버튼을 눌러 같은 파일을 다시 골라 주세요 — 그 경로는 파일 내용을 다시
+풀어 넣습니다.
+
+---
+
 ## 저장 공간이 부족하다고 합니다
 
 `Storage is full — released 3 old copies and saved.` 가 뜨면 folio가 오래된

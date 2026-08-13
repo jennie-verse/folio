@@ -19,6 +19,26 @@ function isQuotaError(error) {
   return Boolean(error) && (error.name === 'QuotaExceededError' || /quota|storage/i.test(String(error.message || '')));
 }
 
+/** Reconnecting a package has to rebuild its assets — releasing one deletes
+    its `packageAssets` rows, and for a package those rows ARE the document
+    (relink.js carries the long version of this). A duplicate-hash import
+    hits the exact same released package, so it needs the exact same rebuild;
+    without it the document is left with `released:false` (no "Needs file"
+    badge, looks healthy) but zero assets, and every open shows "This
+    package's files are missing" forever, Reconnect button included, no
+    matter how many times the same correct ZIP is re-imported. */
+async function packagePatch(doc, file) {
+  if (doc.kind !== 'html-package') return {};
+  const meta = await pkg.importZip(file);
+  await store.putPackageAssets(doc.id, meta.packageAssets);
+  return {
+    entryPath: meta.entryPath,
+    entryContent: meta.content,
+    packageFileCount: meta.packageFileCount,
+    packageAssetsReleased: false,
+  };
+}
+
 /** Save the original bytes, making room by releasing old unpinned copies if
     the device is full. Pinned documents are never touched (spec 7장). */
 async function saveWithRoom(fileHash, docId, blob) {
@@ -60,8 +80,18 @@ export async function importFiles(files, handlers) {
       // A file already in folio is reconnected, never duplicated (spec 8장).
       const existing = await store.findByHash(fileHash);
       if (existing) {
+        let patch;
+        try {
+          patch = await packagePatch(existing, file);
+        } catch {
+          // A ZIP that fails to re-read must not be marked reconnected — that
+          // would clear the "Needs file" badge on a document still missing
+          // its assets, hiding the very thing the user needs to fix.
+          failures.push({ name: file.name, reason: 'This ZIP could not be read.' });
+          continue;
+        }
         await saveWithRoom(fileHash, existing.id, file);
-        await store.patchDocument(existing.id, { released: false, size: file.size });
+        await store.patchDocument(existing.id, { released: false, size: file.size, ...patch });
         await store.touch(existing.id);
         reconnected += 1;
         continue;

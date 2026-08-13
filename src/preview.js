@@ -58,12 +58,21 @@ export function newSession() {
 /**
  * Mount a document in the sandbox.
  *
+ * `options.session` is not optional in practice: `instrument()` and the
+ * package shim are baked into the HTML with a session id, and preview-host
+ * relays a message from the document only when its id matches the one this
+ * mount announced. Minting a second id here instead of reusing the one the
+ * HTML was built with drops every message the document sends — link taps,
+ * scroll reports, runtime errors, `ready` — with no error anywhere. That is
+ * what killed every package link in build 2026.08.12-pkglink4. A mount whose
+ * HTML carries no instrumentation may leave it out.
+ *
  * @param {HTMLElement} container element the iframe is appended to
- * @param {object} options {html, allowScripts, title, restoreY, onIssue, onScroll, onOpen}
+ * @param {object} options {html, session, allowScripts, title, restoreY, onIssue, onScroll, onOpen, onOpenAsset}
  * @returns {{destroy:Function, frame:HTMLIFrameElement, session:string}}
  */
 export function mount(container, options) {
-  const session = newSession();
+  const session = options.session || newSession();
   const frame = document.createElement('iframe');
   frame.className = 'frame';
   frame.setAttribute('referrerpolicy', 'no-referrer');

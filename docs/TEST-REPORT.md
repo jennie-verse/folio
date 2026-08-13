@@ -734,3 +734,348 @@ HTTP 캐시 등) 중간 캐시에서 나온 옛 바이트라면 **방금 설치�
 | 콘솔 오류 · CSP 위반 | 0건 |
 
 실기기 클릭 확인은 사용자가 다시 진행합니다.
+
+---
+
+## 13. 세션 불일치로 문서의 모든 메시지가 버려지던 문제 수정 (`2026.08.12-pkglink5`)
+
+실기기 확인 결과: `2026.08.12-pkglink4` 에서도 `전체 PDF (인쇄용 한 파일)` ·
+`PNG` · `SVG` · `PDF` 링크가 **전부 아무 반응이 없었습니다.**
+
+9~12장의 수정은 각각 맞았습니다. 그 아래에 **다섯 번째 결함**이 하나 더
+있었고, 이것이 앞의 네 수정을 전부 무력화하고 있었습니다.
+
+### 13-1. 원인 — 한 번의 mount에 세션 ID가 둘 만들어집니다
+
+`preview-host.html` 은 안쪽 문서에서 오는 메시지를 **세션 ID로 먼저
+거릅니다.** 중계 화이트리스트(11장)는 그 다음 관문입니다.
+
+```js
+// preview-host.html — 안쪽 프레임 → 부모 앱 중계
+if(inner && event.source===inner.contentWindow && event.origin==='null'
+   && d && d.__folioPreview===1 && d.session===session   // ← 여기서 먼저 걸립니다
+   && ['ready','scroll','open','open-asset','asset-error','runtime-error'].indexOf(d.type)>=0)
+```
+
+그런데 `handlers/html.js` 와 `preview.js` 가 **서로 다른 ID를 만들고
+있었습니다.**
+
+```js
+// src/handlers/html.js — mountRun()
+const session = preview.newSession();        // ← ① 문서에 심는 ID
+const html = buildRunHtml(session);          //    instrument() · shim() 이 이걸로 post
+mounted = preview.mount(stage, { html, ... });
+```
+
+```js
+// src/preview.js — mount()
+export function mount(container, options) {
+  const session = newSession();              // ← ② 호스트에 알리는 ID (①과 다름)
+```
+
+호스트는 ②를 기억하고, 문서는 ①로 말합니다. `d.session===session` 이 항상
+거짓이 되어 **문서가 보내는 메시지가 전부 버려졌습니다** — 링크 탭
+(`open-asset`), 스크롤(`scroll`), 자산 오류(`asset-error`), 런타임 오류
+(`runtime-error`), 준비 완료(`ready`) 전부입니다.
+
+오류도 콘솔 로그도 남지 않습니다. 호스트는 "모르는 메시지"를 조용히 버리도록
+설계돼 있고, 실제로 그렇게 동작했을 뿐입니다.
+
+### 13-2. 왜 9~12장 수정으로는 살아나지 않았는가
+
+| 장 | 고친 것 | 맞았는가 | 그래도 안 된 이유 |
+|---|---|---|---|
+| 9 | 앵커에 `data-folio-path` · 앱 쪽 `openPackageAsset()` | 맞음 | 메시지가 중계를 못 넘음 |
+| 10 | 자산 없는 패키지 가드 오탐 | 맞음 | 무관 |
+| 11 | 중계 화이트리스트에 `open-asset` 추가 | 맞음 | **그 앞의 세션 관문**에서 이미 버려짐 |
+| 12 | `preview-host.html` 옛 사본 캐시 고정 | 맞음 | 최신 사본이어도 세션이 안 맞음 |
+
+11장의 정적 대조 테스트는 "타입이 목록에 있는가"를 봅니다. 이번 결함은
+**목록에 닿기 전에** 버려지는 것이라 그 테스트로는 보이지 않았습니다.
+
+### 13-3. 고친 내용
+
+**a) `src/preview.js` — `mount()` 가 HTML을 만든 세션을 그대로 씁니다**
+
+```diff
+- const session = newSession();
++ const session = options.session || newSession();
+```
+
+**b) `src/handlers/html.js` — 양쪽 mount에서 세션을 넘깁니다**
+
+- `mountRun()` — 이미 있던 `session` 을 `preview.mount()` 에 전달
+- `mountRead()` — `materialize()` 안에 인라인돼 있던 `preview.newSession()` 을
+  변수로 끌어내 같은 값을 전달 (Read 모드의 shim `asset-error` 도 같은 관문을
+  지납니다)
+
+`sw.js` 의 `VERSION` 과 `src/version.js` 의 `APP_BUILD` 를 함께
+`2026.08.12-pkglink5` 로 올렸습니다.
+
+보안 규칙은 아무것도 건드리지 않았습니다 — 세션 대조도, 출처 검사도,
+화이트리스트도 그대로입니다. 두 값이 같아졌을 뿐입니다.
+
+### 13-4. 함께 되살아난 것
+
+이 결함은 링크만 죽인 것이 아닙니다. 같은 관문을 지나는 기능 전부가
+죽어 있었습니다.
+
+| 기능 | 수정 전 | 수정 후 |
+|---|---|---|
+| 패키지 링크 탭 (`open-asset`) | 무반응 | folio 뷰어로 열림 |
+| Run 모드 읽던 위치 저장 (`scroll`) | 저장 안 됨 | 저장됨 |
+| Run 모드 읽던 위치 복원 (`ready`→`restore`) | 복원 안 됨 | 복원됨 |
+| `Preview issues` 의 자산·런타임 오류 | **항상 0건** | 실제 건수 표시 |
+
+`Preview issues (0)` 이 계속 0이었던 것은 문제가 없어서가 아니라 보고가
+도착하지 못해서였습니다.
+
+### 13-5. 회귀 테스트
+
+**a) `tests/static.test.mjs`** — `a mounted document and its instrumentation
+share one session id`
+
+- `mount()` 이 `options.session || newSession()` 를 쓰는지
+- `handlers/html.js` 의 `preview.mount()` 호출 **두 곳 모두** `session` 을
+  넘기는지
+- `mountRead()` · `mountRun()` 이 각각 세션을 **정확히 하나만** 만드는지
+- Run 모드가 `buildRunHtml(session)` 에 쓴 그 세션을 mount에 넘기는지
+
+**이 테스트가 실제로 이 결함을 잡는지 직접 증명했습니다** — `preview.js` 의
+한 줄만 되돌리면 이 테스트만 실패하고, `html.js` 의 `session,` 한 줄만
+지워도 이 테스트만 실패합니다. 되돌리지 않으면 37개 전부 통과합니다.
+
+**b) `tests/link-session.test.html` · `tests/link-session.test.js` (새 파일)**
+
+정적 검사로는 "메시지가 실제로 도착하는가"를 볼 수 없습니다 —
+11-5에서 확인하지 못한 채 남겨둔 부분입니다. 실제 중첩 프레임을 띄워
+문서의 첫 마디(`ready`)가 앱까지 도착하는지 확인하는 페이지를 추가했습니다.
+링크를 직접 눌러 `open-asset` 과 그 패키지 경로가 찍히는 것도 그 자리에서
+보입니다.
+
+```
+http://127.0.0.1:4173/Published/folio/tests/link-session.test.html?zip=mind_map.zip
+```
+
+11~12장에서 검토 환경이 **샌드박스 iframe의 http 요청을 차단**해
+(`ERR_BLOCKED_BY_CLIENT`) 실제 클릭을 끝내 확인하지 못했는데, 이번에는
+`&srcdoc=1` 로 `preview-host.html` 을 같은 프레임에 srcdoc으로 넣어
+우회했습니다. 문서·CSP·중첩 구조가 동일하므로 시험 대상인 메시지 경로는
+그대로입니다.
+
+### 13-6. 실제 클릭 확인 — 이번에는 성공했습니다
+
+9~12장에서 세 번 연속 확인하지 못했던 항목입니다.
+
+| 확인 | 결과 |
+|---|---|
+| `mind_map.zip` 반입 → 진입점 판정 | `mindmap-5/index.html` · 자산 35개 · 경고 0건 |
+| 앵커 태깅 | 34개 전부 `data-folio-path` |
+| srcdoc 크기 | **21.3 KB** (수정 전 16.39 MB) |
+| `ready` 도착 | 도착 (수정 전: 도착 안 함) |
+| `전체 11장 PDF` 실제 클릭 | `open-asset mindmap-5/ALL_MAPS_print_bundle.pdf` |
+| `PNG` 실제 클릭 | `open-asset mindmap-5/png/01_principles_founding_documents.png` |
+| `SVG` 실제 클릭 | `open-asset mindmap-5/svg/01_principles_founding_documents.svg` |
+| `PDF` 실제 클릭 | `open-asset mindmap-5/pdf/01_principles_founding_documents.pdf` |
+| 같은 클릭, 수정 전 코드 | **이벤트 0건** (증상 재현) |
+| 자산 → Blob → `detect()` | pdf→`pdf` · png→`image` · svg→`image` · txt→`text` |
+| `mindmap.zip` | 앵커 23개 전부 태깅 · 자산 오류 0건 · srcdoc 19.5 KB |
+
+### 13-7. 확인하지 못한 것
+
+- **앱 화면 안에서의 왕복** — 링크를 눌러 PDF 뷰어·이미지 뷰어가 뜨고
+  뒤로 가면 패키지 화면과 스크롤 위치로 돌아오는 흐름은 검토 환경이
+  샌드박스 iframe의 http 요청을 차단해 실제 앱 화면에서는 여전히 띄울 수
+  없습니다. 확인한 범위는 (1) `open-asset` 이 올바른 패키지 경로와 함께
+  앱까지 도착한다 (2) 그 경로의 자산이 Blob으로 만들어져 올바른 뷰어
+  종류로 판정된다 — 둘 사이를 잇는 `openPackageAsset()` 은 코드 검토만
+  했습니다
+- iPhone 실기기 확인은 사용자가 진행합니다
+
+### 13-8. 별건 — `sample/mind-map.zip` 은 패키지 자체가 깨져 있습니다
+
+folio의 결함이 아니라 **샘플 ZIP의 문제**입니다.
+
+| | 내용 |
+|---|---|
+| ZIP 구조 | PNG 11개와 PDF 1개가 **전부 최상위**에 평평하게 |
+| 진입 HTML이 가리키는 경로 | `png/…` `svg/…` `pdf/…` (하위 폴더) |
+| ZIP 안의 `png/` `svg/` `pdf/` 폴더 | **없음** |
+
+그래서 이 샘플은 수정 후에도 `전체 PDF` 링크 하나만 열리고, 나머지 33개는
+`Preview issues` 에 `Missing package asset: png/…` 로 **정확히 보고됩니다**
+(수정 전에는 이 보고조차 도착하지 못해 그냥 조용했습니다).
+
+`sample/mindmap.zip` 과 `sample/mind_map.zip` 은 구조가 올바르고 전부
+동작합니다.
+
+### 13-9. 완료 조건
+
+| | 결과 |
+|---|---|
+| `npm test` | **37/37** (12-5 이후 1건 추가) |
+| `npm run test:syntax` | 통과 |
+| `grep -arn 'allow-same-origin' .` | **0건** |
+| 앱 셸 CSP · `preview-host.html` CSP · 이중 프레임 | 변경 없음 |
+| 샌드박스에 Blob·blob: URL 전달 | 없음 (앱 쪽에서만 생성) |
+| `VERSION` ↔ `APP_BUILD` | 둘 다 `2026.08.12-pkglink5` |
+| 콘솔 오류 · CSP 위반 | 0건 |
+
+---
+
+## 14. 세 샘플을 다시 처음부터 — 결함 두 개 더 (`2026.08.12-pkglink6`)
+
+사용자가 `2026.08.12-pkglink4` 에서 `mind-map.zip` · `mindmap.zip` · `mind_map.zip`
+**세 개 전부**, 모든 링크가 반응하지 않았다고 재확인하며 "모두 꼼꼼하게"
+재점검을 요청했습니다. 13장의 세션 수정(`pkglink5`)이 원인이었던 것은
+맞지만, 다시 처음부터 실제 앱으로 세 ZIP을 넣고 확인하는 과정에서 **13장과
+무관한 결함 두 개를 더** 찾았습니다. 셋 다 같은 증상("눌러도 반응 없음")을
+만들 수 있고, 서로 다른 코드 경로에 있었습니다.
+
+### 14-1. 검증 방식을 바꿨습니다
+
+지난 회차들은 `preview.js`·`package.js` 를 직접 호출하는 방식으로 검증했습니다.
+이번에는 실제 앱 화면에서 파일 선택창을 거치지 않고 `input.files` 에
+`DataTransfer` 로 세 ZIP을 직접 넣어 `change` 이벤트를 발생시켜, **앱의
+`importFiles()` 를 실제로 실행**시켰습니다. 그 결과 라이브러리에 이미
+있던(과거 세션에서 만들어진) `mindmap` · `mindmap-` 두 문서가 "해제됨"
+상태였다는 것이 드러났고, 여기서 결함 C가 나왔습니다.
+
+### 14-2. 결함 C — 중복 반입으로 재연결하면 자산이 복원되지 않습니다
+
+`src/relink.js` 의 "Reconnect" 버튼 경로(9장에서 고침)는 `pkg.importZip()`
+을 다시 돌려 `packageAssets` 를 복원합니다. 그런데 **같은 파일을 "Import
+files" 로 다시 넣어 해시가 일치해 재연결되는 경로**(`src/library.js` 의
+`importFiles()`)는 이 복원을 전혀 하지 않는, relink.js와는 완전히 다른
+코드였습니다.
+
+```js
+// src/library.js — importFiles(), 고치기 전
+if (existing) {
+  await saveWithRoom(fileHash, existing.id, file);
+  await store.patchDocument(existing.id, { released: false, size: file.size });  // ← packageAssets 복원 없음
+  await store.touch(existing.id);
+  reconnected += 1; continue;
+}
+```
+
+실제로 재현했습니다: 해제된 상태였던 `mindmap`(mindmap.zip 해시)과
+`mindmap-`(mind_map.zip 해시) 문서에 같은 zip을 "Import files" 로 다시
+넣자 "Already in folio — reconnected instead." 토스트가 뜨고 `released`
+가 `false` 로 바뀌어(목록에서 `Needs file` 배지가 사라짐 — **정상 문서처럼
+보입니다**) — 그런데 `packageAssetsReleased` 는 여전히 `true`, 자산은
+여전히 0개였습니다. 열면 "This package's files are missing." 화면이
+계속 뜨는데, `Needs file` 배지가 없으니 사용자는 왜 그런지 알 길이
+없습니다.
+
+**고침** — `src/library.js` 에 `relink.js` 의 `packagePatch()` 와 동일한
+함수를 추가하고, 중복 해시 재연결 분기에서 `existing.kind==='html-package'`
+면 호출합니다. ZIP을 다시 읽지 못하면(손상 등) 재연결 자체를 취소하고
+`failures` 에 기록합니다 — 절반만 연결된 상태를 만들지 않습니다(9장의
+relink.js와 같은 원칙).
+
+**재현 확인** — 고치기 전: 재연결 후 `assetCount: 0`, `packageAssetsReleased:
+true`. 고친 후: 같은 zip 재연결 시 `assetCount: 25`·`35`, `packageAssetsReleased:
+false` 로 실제 복원됨을 스토어에서 직접 읽어 확인했습니다.
+
+### 14-3. 결함 D — 패키지에 없는 파일을 가리키는 링크는 조용히 죽습니다
+
+`sample/mind-map.zip` 은 `png/`·`svg/`·`pdf/` 하위 폴더를 가리키는데 ZIP
+안에는 그 폴더가 없습니다(13장 별건 8절에서 이미 확인한 손상된 샘플).
+이 zip으로 **13장 수정 이후에도 남아 있던 세 번째 결함**을 찾았습니다.
+
+`rewriteStatic()`(정적 처리, `materialize()` 가 호출)의 앵커 처리는 대상이
+패키지에 없으면 **아무것도 하지 않았습니다** — `data-folio-path` 도 안 붙고
+`warnings` 에도 안 남습니다. `src`·`href`(비앵커)·`poster` 등 다른 모든
+속성은 누락 시 `warnings.push('Missing package asset: ...')` 를 하는데
+앵커만 예외였습니다. `shim()`(런타임 처리)의 `tagLink()` 도 마찬가지로
+미지의 경로면 태그를 아예 안 붙이고 `asset-error` 만 보냈습니다.
+
+**왜 이게 "링크가 죽는다"인가** — `data-folio-path` 가 없는 앵커는
+`instrument()` 의 클릭 핸들러 모든 분기를 그냥 통과합니다(`#` 아님,
+`download` 아님, `http/https/mailto/tel/sms` 아님, `javascript:` 아님).
+그러면 `e.preventDefault()` 가 한 번도 안 불리고 **브라우저의 기본 링크
+이동이 그대로 실행**됩니다 — 이중 샌드박스 프레임 안에서 존재하지 않는
+상대 경로로 이동을 시도하다 그 프레임 안에서만 조용히 실패합니다. 토스트도,
+`Preview issues` 항목도, 콘솔 로그도 없습니다. **"버튼을 눌러도 반응이
+없다"는 사용자 증상과 정확히 같은 모양**이고, `mind-map.zip` 은 34개 링크
+중 33개가 정확히 이 상태였습니다.
+
+**고침** — 두 곳 모두, **경로가 정상적으로 해석되면 자산이 있든 없든
+`data-folio-path` 를 붙입니다.** 그 위에서, 자산이 없으면 (기존과 동일하게)
+`warnings.push`(정적)·`report()`→`asset-error`(런타임)를 합니다. 태그가
+붙으면 클릭이 `instrument()` 의 `open-asset` 분기로 들어가고, 그 다음은
+`src/app.js` 의 `openPackageAsset()` 가 이미 갖고 있던 처리로 이어집니다 —
+`assets[path]` 가 없으면 `toast('This file is not in the package.')`.
+새 코드를 추가하지 않고 **이미 있던, 이미 테스트되던 경로**로 흘려보냈습니다.
+
+```diff
+- try{var lr=resolvePackagePath(ref,baseDir);if(lr&&assetFor(doc,lr.path))el.setAttribute('data-folio-path',lr.path)}catch(e){}
++ try{var lr=resolvePackagePath(ref,baseDir);if(lr){el.setAttribute('data-folio-path',lr.path);if(!assetFor(doc,lr.path))warnings.push('Missing package asset: '+ref)}}catch(e){}
+```
+```diff
+- function tagLink(el,v){...if(K[r.path])nativeSet.call(el,"data-folio-path",r.path);else report(r.path)}
++ function tagLink(el,v){...nativeSet.call(el,"data-folio-path",r.path);if(!K[r.path])report(r.path)}
+```
+
+### 14-4. 세 ZIP 전부, 링크 전부 — 실제 실행으로 확인했습니다
+
+이번 검토 환경은 (a) 샌드박스 iframe의 http 요청을 차단하고(11~13장에서
+계속 마주친 제약) (b) 실제 앱 셸의 엄격한 CSP(`script-src 'self'`)가
+`about:srcdoc` 프레임에도 상속되어 13장에서 쓴 srcdoc 우회조차 앱 안에서는
+`preview-host.html` 의 인라인 부트스트랩 스크립트를 막습니다 — 그래서
+**이번 회차는 실제 앱 화면 안에서의 클릭은 이전과 마찬가지로 확인하지
+못했습니다.** 대신 앱이 실제로 실행하는 그 코드(`instrument()`·`shim()`)를
+CSP 없는 별도 프레임에 그대로 올려 **각 zip의 진짜 앵커 전부**를 실제
+`click` 이벤트로 눌러 확인했습니다 — 재구현이 아니라 같은 함수를 그대로
+실행한 것입니다.
+
+| ZIP | 앵커 수 | `open-asset` 발생 | 그 외 이벤트 |
+|---|---|---|---|
+| `mindmap.zip` | 23 | **23/23** | `ready` |
+| `mind_map.zip` | 34 | **34/34** | `ready` |
+| `mind-map.zip` | 34 | **34/34** (33개는 패키지에 없는 경로) | `asset-error` ×33, `ready` |
+
+91개 링크 전부가 올바른 패키지 경로와 함께 `open-asset` 을 보냈습니다.
+`mind-map.zip` 의 33개는 **추가로** `asset-error` 도 함께 보내 — 클릭하면
+`openPackageAsset()` 의 "This file is not in the package." 토스트로 이어질
+것을 코드로 확인했습니다(9장에서 이미 만들어진 토스트를 재사용).
+
+### 14-5. 회귀 테스트
+
+- `tests/package-map.test.js` — `missing/nowhere.pdf` 를 가리키는 합성
+  앵커가 자산이 없어도 태그되고 경고가 남는지, 그리고 **실제
+  `sample/mind-map.zip`** 으로 34개 앵커 전부 태그되는지(0개 미태그) ·
+  누락 33건 = 경고 33건인지 확인. 4건 추가, 로컬 리뷰 서버에서
+  `tests/package-map.test.html` 로 실행(`node --test` 로는 못 돌림 — DOM
+  필요, 기존 방식과 동일)
+- `npm test` **37/37**(Node쪽은 변경 없음, 회귀 없음 확인) · `npm run
+  test:syntax` 통과
+
+### 14-6. 이번 회차에서 배운 것 — 검토 환경의 캐시 함정
+
+브라우저 창을 오래 띄워둔 채로 `src/package.js` 를 여러 번 고치다 보니,
+**버전 쿼리스트링이 없는 일반 `fetch`/모듈 `import` 가 이 리뷰 브라우저의
+HTTP 디스크 캐시에서 옛 코드를 계속 돌려주는** 현상을 만났습니다(Service
+Worker와는 별개 — SW는 그때 이미 해제돼 있었습니다). 같은 파일을
+`cache:'reload'` 로 한 번 fetch하면 그 URL의 캐시가 갱신되고, 그 다음부터는
+정상적인 페이지가 정확한 코드로 실행됐습니다. **실제 배포 환경(iPhone
+Safari)에는 해당되지 않습니다** — 실제 서비스 워커는 버전이 바뀌면 캐시
+이름 자체가 바뀌어 이 문제가 생기지 않습니다(12장). 검토 중 "고쳤는데도
+안 된다"는 결과가 나오면 이 캐시 함정부터 의심하기로 기록해 둡니다.
+
+### 14-7. 완료 조건
+
+| | 결과 |
+|---|---|
+| `npm test` | **37/37** |
+| `npm run test:syntax` | 통과 |
+| `tests/package-map.test.html` (브라우저) | **14/14 통과** (1건 skip — 파일명 관례) |
+| `grep -arn 'allow-same-origin' .` | 0건 |
+| 세 샘플 ZIP, 실제 `instrument()`/`shim()` 로 앵커 전부 클릭 | 91/91 정상 이벤트 |
+| 중복 반입 재연결 후 `packageAssets` 복원 | mindmap 25개·mindmap- 35개, 스토어에서 직접 확인 |
+| `VERSION` ↔ `APP_BUILD` | 둘 다 `2026.08.12-pkglink6` |
+
+실기기(iPhone) 재확인이 여전히 필요합니다 — 이번에도 실제 앱 화면 안에서의
+클릭 자체는 이 환경의 두 가지 제약(샌드박스 iframe 차단, srcdoc에 상속되는
+앱 셸 CSP) 때문에 확인하지 못했습니다.

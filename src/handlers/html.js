@@ -167,12 +167,14 @@ export async function render(ctx) {
        the rewrite inlined, so the frame still loads with no scripting at all.
        (Packages are Run-only in the UI per plan 6-4; this keeps Read correct
        for the day it is reachable.) */
+    const session = preview.newSession();
     const readSource = isPackage
-      ? pkg.materialize({ content: source, packageAssets: assets, entryPath: doc.entryPath || 'index.html' }, preview.newSession(), '', '').html
+      ? pkg.materialize({ content: source, packageAssets: assets, entryPath: doc.entryPath || 'index.html' }, session, '', '').html
       : source;
     const state = await ctx.readingState();
     mounted = preview.mount(stage, {
       html: preview.ensureViewport(sanitizeDocument(readSource)),
+      session,
       allowScripts: false,
       title: doc.title,
       restoreY: state.scrollY || 0,
@@ -213,6 +215,9 @@ export async function render(ctx) {
     const state = await ctx.readingState();
     mounted = preview.mount(stage, {
       html,
+      // The same id the instrumentation inside `html` posts with; without it
+      // preview-host discards every message the document sends.
+      session,
       allowScripts: true,
       title: doc.title,
       restoreY: state.scrollY || 0,

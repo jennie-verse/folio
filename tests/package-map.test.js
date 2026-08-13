@@ -37,6 +37,22 @@ const mixed = {
   },
 };
 
+/* A page with one link to a file the ZIP genuinely never contained — the
+   shape of every link in sample/mind-map.zip, whose HTML expects png/svg/pdf
+   subfolders that don't exist in that particular archive. An untagged anchor
+   falls through every branch of instrument()'s click handler with no
+   preventDefault(), so the click attempts a real default navigation of the
+   sandboxed frame to a path that was never in the package — which fails
+   silently inside the nested frame, with no toast and no Preview issues
+   entry. Tagging it anyway routes the click through the app's existing
+   "This file is not in the package." toast instead. */
+const BROKEN_LINK = [
+  '<!doctype html><html><head><title>Broken</title></head><body>',
+  '<a href="missing/nowhere.pdf">nowhere</a>',
+  '</body></html>',
+].join('');
+const brokenLink = { content: BROKEN_LINK, entryPath: 'index.html', packageAssets: {} };
+
 function payloadOf(html) {
   const raw = /var P=(\{[\s\S]*?\}),M=P\.map/.exec(html)[1];
   return JSON.parse(raw.replace(/\\u003c/g, '<').replace(/\\u2028|\\u2029/g, ''));
@@ -54,6 +70,12 @@ async function run() {
   check('link carries data-folio-path', out.html.includes('data-folio-path="docs/report.pdf"'));
   check('dual-use link also carries the path', out.html.includes('data-folio-path="pics/both.png"'));
 
+  const brokenOut = pkg.materialize(brokenLink, 's1', '', '');
+  check('a link to a path the ZIP never had is still tagged',
+    brokenOut.html.includes('data-folio-path="missing/nowhere.pdf"'));
+  check('a link to a path the ZIP never had is reported, not silently dropped',
+    brokenOut.warnings.some((w) => w.includes('missing/nowhere.pdf')));
+
   for (const name of ['mindmap.zip', 'mindmap-.zip']) {
     try {
       const response = await fetch(`../../../sample/${name}`);
@@ -68,6 +90,32 @@ async function run() {
     } catch (error) {
       check(`${name} materializes under 100 KB`, false, String(error.message || error));
     }
+  }
+
+  /* mind-map.zip's own HTML expects png/svg/pdf subfolders that this
+     particular archive does not contain (13 files, all at the ZIP root) —
+     a real, not synthetic, case of every non-bundle link pointing nowhere.
+     Every one of those anchors must still be tagged, or the click silently
+     dies inside the sandboxed frame (see BROKEN_LINK above). */
+  try {
+    const response = await fetch('../../../sample/mind-map.zip');
+    if (!response.ok) { skip('mind-map.zip tags links the archive lacks', 'sample not served here — run from the local review server'); }
+    else {
+      const meta = await pkg.importZip(new File([await response.blob()], 'mind-map.zip'));
+      const materialized = pkg.materialize(meta, 's1', '', '');
+      const doc = new DOMParser().parseFromString(materialized.html, 'text/html');
+      const anchors = [...doc.querySelectorAll('a[href]')].filter((a) => a.getAttribute('href') !== '#');
+      const untagged = anchors.filter((a) => !a.hasAttribute('data-folio-path'));
+      check('mind-map.zip tags every link, including ones the archive lacks',
+        anchors.length > 0 && untagged.length === 0,
+        `${anchors.length} anchors, ${untagged.length} untagged: ${untagged.map((a) => a.getAttribute('href')).join(', ')}`);
+      const missing = anchors.filter((a) => !meta.packageAssets[a.getAttribute('data-folio-path')]);
+      check('mind-map.zip reports each one missing, not silently',
+        missing.length > 0 && missing.length === materialized.warnings.length,
+        `${missing.length} links point nowhere, ${materialized.warnings.length} warnings`);
+    }
+  } catch (error) {
+    check('mind-map.zip tags every link, including ones the archive lacks', false, String(error.message || error));
   }
 
   const failed = results.filter((row) => !row.ok).length;

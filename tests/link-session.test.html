@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>folio — package link session test</title>
+<link rel="stylesheet" href="../assets/app.css">
+<script type="module" src="link-session.test.js"></script>
+</head>
+<body>
+<!--
+  Does a rendered document's own voice reach the app?
+
+  preview-host.html relays a message from the document only when its session id
+  matches the id the mount announced. Build 2026.08.12-pkglink4 built the HTML
+  with one id and let preview.mount() mint a second, so the host silently
+  dropped everything the document said — link taps, scroll, runtime errors —
+  and every link inside a ZIP package went dead with nothing logged anywhere.
+  No static check can see that; it needs a real nested frame.
+
+  Open this page from the same static server the app is reviewed on:
+
+      http://127.0.0.1:4173/Published/folio/tests/link-session.test.html
+
+  The sample ZIPs are read from ../../../sample/, so the server root must be
+  the WebApp folder. Pick a package with ?zip=<name> (default mind_map.zip).
+
+  Add &srcdoc=1 if the browser refuses to load a SANDBOXED frame over http
+  (some managed/embedded browsers block it as ERR_BLOCKED_BY_CLIENT). That
+  hands preview-host.html to the frame as srcdoc instead: same document, same
+  CSP, same nested structure, so the message plumbing under test is unchanged.
+
+  Then tap a link in the frame below — every tap should print one `open-asset`
+  with the package path it points at.
+-->
+<main class="scroll">
+  <h1 class="sec" id="head">Running…</h1>
+  <ul class="doclist" id="results"></ul>
+  <h2 class="sec">Tap a link in the package — each tap should log one open-asset</h2>
+  <ul class="doclist" id="taps"></ul>
+  <div id="stage" style="height:70vh"></div>
+</main>
+</body>
+</html>

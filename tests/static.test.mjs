@@ -378,6 +378,34 @@ test("a package link is handed to folio, never navigated to a data: URL", () => 
   assert.doesNotMatch(read("src/package.js"), /createObjectURL/);
 });
 
+/* The relay allowlist above proves the host FORWARDS the right message types.
+   This proves the messages get past the guard that runs first. */
+test("a mounted document and its instrumentation share one session id", () => {
+  /* preview-host relays a message from the document only when `d.session`
+     equals the id the mount announced. Build 2026.08.12-pkglink4 built the
+     HTML with one id and let mount() mint a second, so the host dropped every
+     message the document sent — link taps, scroll, runtime errors, `ready` —
+     and every package link went dead with nothing logged anywhere. */
+  assert.match(previewJs, /const session = options\.session \|\| newSession\(\);/,
+    "mount() must reuse the session its HTML was built with");
+
+  const htmlHandler = read("src/handlers/html.js");
+  const calls = [...htmlHandler.matchAll(/preview\.mount\(stage, \{([\s\S]*?)\n {4}\}\);/g)];
+  assert.equal(calls.length, 2, "sanity check: both preview.mount() call sites must be found");
+  for (const [, options] of calls) {
+    assert.match(options, /^ *session,$/m, "every preview.mount() call must hand over its session");
+  }
+
+  // One session per mount, and it is the one the document was built with.
+  for (const name of ["mountRead", "mountRun"]) {
+    const body = new RegExp(`async function ${name}\\(\\) \\{[\\s\\S]*?\\n  \\}`).exec(htmlHandler)[0];
+    assert.equal((body.match(/preview\.newSession\(\)/g) || []).length, 1,
+      `${name}() must mint exactly one session`);
+  }
+  assert.match(htmlHandler, /const session = preview\.newSession\(\);\n    const html = buildRunHtml\(session\);/,
+    "Run mode must instrument the HTML with the session it then mounts");
+});
+
 /* materialize() walks a parsed document, and Node has no DOM. The two checks
    that need one — which assets stay in the runtime map, and how large the two
    sample packages materialize to — run in tests/package-map.test.html, the
