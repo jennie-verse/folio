@@ -8,7 +8,7 @@
 // PDF.js is about 5 MB. Precaching it would make the very first install slow
 // for someone who may never open a PDF, so it is fetched on demand and then
 // kept.
-const VERSION = '2026.08.12-pkglink6';   // must match APP_BUILD in src/version.js
+const VERSION = '2026.08.13-audit2';   // must match APP_BUILD in src/version.js
 
 const SHELL  = `folio-shell-${VERSION}`;
 const PDFJS  = `folio-pdfjs-${VERSION}`;
@@ -35,6 +35,8 @@ const ASSETS = [
   './src/app.js',
   './src/version.js',
   './src/store.js',
+  './src/storage.js',
+  './src/quota.js',
   './src/ui.js',
   './src/settings.js',
   './src/detect.js',

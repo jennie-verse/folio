@@ -91,6 +91,7 @@ export async function render(ctx) {
 
   let rotation = 0;
   let scale = 1;
+  const gestures = new AbortController();
   const slots = [];
   const rendered = new Set();
 
@@ -181,10 +182,53 @@ export async function render(ctx) {
   }
 
   async function repaintAll() {
+    const currentPage = Math.max(1, Number(slider.value));
     rendered.clear();
     slots.forEach((slot) => { clear(slot); slot.style.width = `${baseWidth() * scale}px`; });
-    await paintPage(Math.max(1, Number(slider.value)));
+    await paintPage(currentPage);
+    requestAnimationFrame(() => goToPage(currentPage));
   }
+
+  async function setScale(next) {
+    scale = Math.max(0.35, Math.min(4, Number(next) || 1));
+    await repaintAll();
+  }
+
+  async function fitPage() {
+    const page = await pdf.getPage(Math.max(1, Number(slider.value)));
+    const viewport = page.getViewport({ scale: 1, rotation });
+    const widthScale = baseWidth() / viewport.width;
+    const heightScale = Math.max(120, body.clientHeight - 24) / viewport.height;
+    scale = Math.max(0.35, Math.min(1, heightScale / widthScale));
+    await repaintAll();
+  }
+
+  const active = new Map();
+  let pinchStart = 0;
+  let pinchScale = 1;
+  const pinchDistance = () => {
+    const points = Array.from(active.values());
+    return points.length < 2 ? 0 : Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+  };
+  body.addEventListener('pointerdown', (event) => {
+    if (event.pointerType !== 'touch') return;
+    active.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (active.size === 2) { pinchStart = pinchDistance(); pinchScale = scale; }
+  }, { signal: gestures.signal });
+  body.addEventListener('pointermove', (event) => {
+    if (!active.has(event.pointerId)) return;
+    active.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  }, { signal: gestures.signal });
+  const finishPinch = (event) => {
+    if (active.size === 2 && pinchStart) {
+      const next = pinchScale * (pinchDistance() / pinchStart);
+      setScale(next).catch(() => {});
+    }
+    active.delete(event.pointerId);
+    if (active.size < 2) pinchStart = 0;
+  };
+  body.addEventListener('pointerup', finishPinch, { signal: gestures.signal });
+  body.addEventListener('pointercancel', finishPinch, { signal: gestures.signal });
 
   const start = await ctx.readingState();
   if (start && start.page > 1) setTimeout(() => goToPage(start.page), 60);
@@ -217,10 +261,13 @@ export async function render(ctx) {
         type: 'button', text: 'Rotate',
         onclick: () => { rotation = (rotation + 90) % 360; repaintAll().catch(() => {}); },
       }),
+      el('button', { type: 'button', text: 'Fit width', onclick: () => setScale(1).catch(() => {}) }),
+      el('button', { type: 'button', text: 'Fit page', onclick: () => fitPage().catch(() => {}) }),
     ],
     bottom: [slider],
-    setScale(next) { scale = next; return repaintAll(); },
+    setScale,
     destroy() {
+      gestures.abort();
       observer.disconnect();
       Promise.resolve(close()).catch(() => {});
     },

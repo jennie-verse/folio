@@ -19,6 +19,14 @@ const DEFAULTS = Object.freeze({
   viewerHintSeen: false,
 });
 
+const RESTORE_KEYS = new Set([
+  'fs', 'theme', 'retentionDays', 'sort', 'stateFilter', 'typeFilter',
+  'releaseConfirmed', 'viewerHintSeen',
+]);
+const SORTS = new Set(['recent', 'added', 'title', 'size', 'kind']);
+const STATE_FILTERS = new Set(['all', 'pinned', 'needs', 'recent']);
+const TYPES = new Set(['text', 'markdown', 'html', 'html-package', 'pdf', 'csv', 'image']);
+
 let cache = null;
 
 function read() {
@@ -46,6 +54,33 @@ export function set(name, value) {
   write();
   if (name === 'fs') applyFontSize();
   if (name === 'theme') applyTheme();
+}
+
+/** Validate the portable preference subset. Tokens, cleanup timestamps and
+    device identifiers are intentionally not accepted from a backup. */
+export function normalizeBackupSettings(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const out = {};
+  for (const key of RESTORE_KEYS) {
+    if (!(key in source)) continue;
+    const item = source[key];
+    if (key === 'fs' && FONT_STEPS.includes(Number(item))) out.fs = Number(item);
+    else if (key === 'theme' && ['system', 'light', 'dark'].includes(item)) out.theme = item;
+    else if (key === 'retentionDays' && RETENTION_CHOICES.includes(Number(item))) out.retentionDays = Number(item);
+    else if (key === 'sort' && SORTS.has(item)) out.sort = item;
+    else if (key === 'stateFilter' && STATE_FILTERS.has(item)) out.stateFilter = item;
+    else if (key === 'typeFilter' && Array.isArray(item)) out.typeFilter = [...new Set(item.filter((kind) => TYPES.has(kind)))];
+    else if ((key === 'releaseConfirmed' || key === 'viewerHintSeen') && typeof item === 'boolean') out[key] = item;
+  }
+  return out;
+}
+
+export function restorePortable(value) {
+  cache = { ...DEFAULTS, ...normalizeBackupSettings(value) };
+  write();
+  applyFontSize();
+  applyTheme();
+  return all();
 }
 
 export function getLastCleanupAt() {

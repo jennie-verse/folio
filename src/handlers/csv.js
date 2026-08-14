@@ -6,7 +6,6 @@
 
 import { el, clear, choose, toast, formatCount } from '../ui.js';
 import { decodeBlob, ENCODINGS, labelFor } from './encoding.js';
-import { Finder } from '../find.js';
 
 export const kinds = ['csv'];
 
@@ -54,20 +53,59 @@ export async function render(ctx) {
   table.appendChild(tbody);
   wrap.appendChild(table);
 
-  const finder = new Finder(tbody);
   let rows = [];
   let painted = 0;
+  let renderedStart = 0;
+  let saveTimer = null;
+  let searchMatches = [];
+  let searchAt = -1;
+
+  function rowNode(row, index) {
+    const line = el('tr', { dataset: { row: String(index + 1) } });
+    line.appendChild(el('th', { scope: 'row', text: formatCount(index + 1) }));
+    (row || []).forEach((cell) => line.appendChild(el('td', { text: cell })));
+    return line;
+  }
 
   function appendRows(count) {
     const limit = Math.min(rows.length, painted + count);
     for (let i = painted; i < limit; i += 1) {
-      const line = el('tr');
-      line.appendChild(el('th', { scope: 'row', text: formatCount(i) }));
-      (rows[i] || []).forEach((cell) => line.appendChild(el('td', { text: cell })));
-      tbody.appendChild(line);
+      tbody.appendChild(rowNode(rows[i], i));
     }
     painted = limit;
     ctx.setBottomText(`Row ${formatCount(Math.min(painted, rows.length))} / ${formatCount(rows.length)}`);
+  }
+
+  function showWindow(start) {
+    renderedStart = Math.max(0, Math.min(rows.length - 1, start));
+    painted = renderedStart;
+    clear(tbody);
+    appendRows(VIRTUAL_ROWS);
+  }
+
+  function currentRowInfo() {
+    const visible = Array.from(tbody.querySelectorAll('tr')).find((row) => row.offsetTop + row.offsetHeight >= wrap.scrollTop);
+    return {
+      row: Number(visible && visible.dataset.row) || Math.min(rows.length, renderedStart + 1),
+      offset: visible ? wrap.scrollTop - visible.offsetTop : 0,
+    };
+  }
+
+  async function savePosition() {
+    const { row, offset } = currentRowInfo();
+    await ctx.saveReading({
+      row,
+      rowOffset: offset,
+      rowRatio: rows.length ? row / rows.length : 0,
+      scrollTop: wrap.scrollTop,
+      scrollLeft: wrap.scrollLeft,
+      progress: rows.length ? row / rows.length : 0,
+    });
+  }
+
+  function paintShadows() {
+    wrap.classList.toggle('scroll-left', wrap.scrollLeft > 1);
+    wrap.classList.toggle('scroll-right', wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 1);
   }
 
   async function paint() {
@@ -80,6 +118,7 @@ export async function render(ctx) {
     const header = all.length ? all[0] : [];
     rows = all.slice(1);
     painted = 0;
+    renderedStart = 0;
 
     clear(thead);
     clear(tbody);
@@ -91,25 +130,70 @@ export async function render(ctx) {
   }
 
   wrap.addEventListener('scroll', () => {
-    if (painted >= rows.length) return;
-    if (wrap.scrollTop + wrap.clientHeight > wrap.scrollHeight - 400) appendRows(VIRTUAL_ROWS);
+    paintShadows();
+    if (painted < rows.length && wrap.scrollTop + wrap.clientHeight > wrap.scrollHeight - 400) appendRows(VIRTUAL_ROWS);
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { savePosition().catch(() => {}); }, 250);
   }, { passive: true });
 
   body.classList.remove('pad');
   clear(body);
   body.appendChild(wrap);
   await paint();
+  const state = await ctx.readingState();
+  const restoreRow = Math.max(1, Math.min(rows.length || 1, Number(state.row) || Math.round(Number(state.rowRatio || 0) * rows.length) || 1));
+  if (restoreRow > painted) showWindow(Math.max(0, restoreRow - 1));
+  requestAnimationFrame(() => {
+    const target = tbody.querySelector(`[data-row="${restoreRow}"]`);
+    wrap.scrollTop = restoreRow > VIRTUAL_ROWS && target
+      ? target.offsetTop + Number(state.rowOffset || 0)
+      : Number(state.scrollTop || 0);
+    wrap.scrollLeft = Number(state.scrollLeft || 0);
+    paintShadows();
+  });
+
+  const finder = {
+    search(value) {
+      const needle = String(value || '').trim().toLocaleLowerCase();
+      searchMatches = needle ? rows.reduce((hits, row, index) => {
+        if (row.some((cell) => String(cell).toLocaleLowerCase().includes(needle))) hits.push(index);
+        return hits;
+      }, []) : [];
+      searchAt = searchMatches.length ? 0 : -1;
+      if (searchAt >= 0) this.show();
+      return searchMatches.length;
+    },
+    show() {
+      const index = searchMatches[searchAt];
+      if (index === undefined) return;
+      showWindow(Math.max(0, index - Math.floor(VIRTUAL_ROWS / 3)));
+      requestAnimationFrame(() => {
+        const target = tbody.querySelector(`[data-row="${index + 1}"]`);
+        if (target) target.scrollIntoView({ block: 'center' });
+      });
+    },
+    next() { if (searchMatches.length) { searchAt = (searchAt + 1) % searchMatches.length; this.show(); } },
+    previous() { if (searchMatches.length) { searchAt = (searchAt - 1 + searchMatches.length) % searchMatches.length; this.show(); } },
+    clear() { searchMatches = []; searchAt = -1; },
+  };
 
   return {
     finder,
     tools: [
       el('button', {
         type: 'button', text: 'Find',
-        onclick: () => { appendRows(rows.length); ctx.openFind(finder); },
+        onclick: () => ctx.openFind(finder),
       }),
       el('button', {
         type: 'button', text: 'Columns',
-        onclick: () => {
+        onclick: async () => {
+          const picked = await choose('Columns', [
+            { value: 'auto', label: 'Auto' },
+            { value: 'compact', label: 'Compact' },
+            { value: 'comfortable', label: 'Comfortable' },
+          ], wrap.dataset.columns || 'auto');
+          if (!picked) return;
+          wrap.dataset.columns = picked;
           const header = thead.querySelectorAll('th');
           toast(`${formatCount(Math.max(0, header.length - 1))} columns · ${formatCount(rows.length)} rows`);
         },
@@ -136,6 +220,10 @@ export async function render(ctx) {
         },
       }),
     ],
-    destroy() { finder.clear(); },
+    async flush() {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      await savePosition();
+    },
+    destroy() { if (saveTimer) clearTimeout(saveTimer); finder.clear(); },
   };
 }

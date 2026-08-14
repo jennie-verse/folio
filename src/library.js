@@ -8,15 +8,12 @@ import * as pkg from './package.js';
 import * as retention from './retention.js';
 import * as search from './search.js';
 import * as settings from './settings.js';
+import { withRoom } from './storage.js';
 
 /* ── importing ─────────────────────────────────────────────────────────── */
 
 function titleFrom(fileName) {
   return String(fileName || 'Untitled').replace(/\.[A-Za-z0-9]+$/, '') || 'Untitled';
-}
-
-function isQuotaError(error) {
-  return Boolean(error) && (error.name === 'QuotaExceededError' || /quota|storage/i.test(String(error.message || '')));
 }
 
 /** Reconnecting a package has to rebuild its assets — releasing one deletes
@@ -30,8 +27,8 @@ function isQuotaError(error) {
 async function packagePatch(doc, file) {
   if (doc.kind !== 'html-package') return {};
   const meta = await pkg.importZip(file);
-  await store.putPackageAssets(doc.id, meta.packageAssets);
   return {
+    packageAssets: meta.packageAssets,
     entryPath: meta.entryPath,
     entryContent: meta.content,
     packageFileCount: meta.packageFileCount,
@@ -41,21 +38,8 @@ async function packagePatch(doc, file) {
 
 /** Save the original bytes, making room by releasing old unpinned copies if
     the device is full. Pinned documents are never touched (spec 7장). */
-async function saveWithRoom(fileHash, docId, blob) {
-  try {
-    await store.saveFile(fileHash, docId, blob);
-    return { saved: true, released: 0 };
-  } catch (error) {
-    if (!isQuotaError(error)) throw error;
-    const { released } = await retention.releaseOldestUnpinned(blob.size * 2);
-    try {
-      await store.saveFile(fileHash, docId, blob);
-      return { saved: true, released };
-    } catch (again) {
-      if (!isQuotaError(again)) throw again;
-      return { saved: false, released };
-    }
-  }
+async function saveWithRoom(doc, blob) {
+  return withRoom(() => store.commitDocumentImport(doc, blob), blob.size, { excludeHashes: [doc.fileHash] });
 }
 
 /**
@@ -90,9 +74,17 @@ export async function importFiles(files, handlers) {
           failures.push({ name: file.name, reason: 'This ZIP could not be read.' });
           continue;
         }
-        await saveWithRoom(fileHash, existing.id, file);
-        await store.patchDocument(existing.id, { released: false, size: file.size, ...patch });
-        await store.touch(existing.id);
+        const { packageAssets, ...docPatch } = patch;
+        const room = await withRoom(
+          () => store.commitReconnect(existing, fileHash, file, { size: file.size, fileName: file.name, ...docPatch }, packageAssets ?? null),
+          file.size,
+          { excludeHashes: [existing.fileHash, fileHash] },
+        );
+        releasedTotal += room.released;
+        if (!room.saved) {
+          failures.push({ name: file.name, reason: 'there was not enough storage space' });
+          continue;
+        }
         reconnected += 1;
         continue;
       }
@@ -121,16 +113,22 @@ export async function importFiles(files, handlers) {
         doc.entryPath = meta.entryPath;
         doc.entryContent = meta.content;
         doc.packageFileCount = meta.packageFileCount;
-        await store.putPackageAssets(id, meta.packageAssets);
-        await store.putDocText(id, meta.content.replace(/<[^>]+>/g, ' '));
+        doc._packageAssets = meta.packageAssets;
       }
 
-      const room = await saveWithRoom(fileHash, id, file);
+      const room = kind === 'html-package'
+        ? await withRoom(
+          () => store.commitPackageImport(doc, file, doc._packageAssets, doc.entryContent.replace(/<[^>]+>/g, ' ')),
+          file.size,
+          { excludeHashes: [fileHash] },
+        )
+        : await saveWithRoom(doc, file);
       releasedTotal += room.released;
-      doc.released = !room.saved;
-      if (!room.saved) { failures.push({ name: file.name, reason: 'there was not enough storage space' }); }
-
-      await store.putDocument(doc);
+      delete doc._packageAssets;
+      if (!room.saved) {
+        failures.push({ name: file.name, reason: 'there was not enough storage space' });
+        continue;
+      }
 
       const handler = handlers[kind];
       if (handler && handler.extractText && kind !== 'html-package') {

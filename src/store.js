@@ -96,6 +96,55 @@ export async function saveFile(fileHash, docId, blob) {
   await db.documentFiles.put({ fileHash, docId, blob, bytes: blob.size, savedAt: Date.now() });
 }
 
+/** Import ordinary document bytes and metadata together. */
+export async function commitDocumentImport(doc, blob) {
+  return db.transaction('rw', db.documents, db.documentFiles, async () => {
+    await db.documentFiles.put({ fileHash: doc.fileHash, docId: doc.id, blob, bytes: blob.size, savedAt: Date.now() });
+    await db.documents.put({ ...doc, released: false });
+  });
+}
+
+/** Commit a reconnect as one unit. A failed transaction preserves the old
+    file, package assets and Needs-file metadata. */
+export async function commitReconnect(doc, fileHash, blob, patch, assets = null) {
+  return db.transaction('rw', db.documents, db.documentFiles, db.packageAssets, async () => {
+    const current = await db.documents.get(doc.id);
+    if (!current) throw new Error('Document no longer exists.');
+    await db.documentFiles.put({ fileHash, docId: doc.id, blob, bytes: blob.size, savedAt: Date.now() });
+    if (assets !== null) {
+      await db.packageAssets.where('docId').equals(doc.id).delete();
+      const rows = Object.entries(assets).map(([path, asset]) => ({ docId: doc.id, path, asset }));
+      if (rows.length) await db.packageAssets.bulkPut(rows);
+    }
+    if (current.fileHash && current.fileHash !== fileHash) {
+      const shared = await db.documents.where('fileHash').equals(current.fileHash).toArray();
+      if (!shared.some((row) => row.id !== doc.id && !row.deletedAt)) await db.documentFiles.delete(current.fileHash);
+    }
+    const next = {
+      ...current, ...patch, fileHash, released: false,
+      lastTouchedAt: Date.now(), updatedAt: Date.now(),
+    };
+    await db.documents.put(next);
+    return next;
+  });
+}
+
+/** Import a package's blob, assets, searchable text and metadata atomically. */
+export async function commitPackageImport(doc, blob, assets, text) {
+  return db.transaction('rw', db.documents, db.documentFiles, db.packageAssets, db.docText, async () => {
+    await db.documentFiles.put({ fileHash: doc.fileHash, docId: doc.id, blob, bytes: blob.size, savedAt: Date.now() });
+    const assetRows = Object.entries(assets || {}).map(([path, asset]) => ({ docId: doc.id, path, asset }));
+    if (assetRows.length) await db.packageAssets.bulkPut(assetRows);
+    const textRows = [];
+    const value = String(text || '');
+    for (let offset = 0; offset < value.length; offset += TEXT_PART_BYTES) {
+      textRows.push({ docId: doc.id, part: textRows.length, text: value.slice(offset, offset + TEXT_PART_BYTES) });
+    }
+    if (textRows.length) await db.docText.bulkPut(textRows);
+    await db.documents.put({ ...doc, released: false });
+  });
+}
+
 export async function dropFile(fileHash) {
   if (fileHash) await db.documentFiles.delete(fileHash);
 }
@@ -213,6 +262,27 @@ export async function deleteEverything() {
         db.documents.clear(), db.documentFiles.clear(), db.packageAssets.clear(),
         db.docText.clear(), db.readingStates.clear(), db.annotations.clear(), db.bookmarks.clear(),
       ]);
+    });
+}
+
+/** Replace every portable document table in one Dexie transaction. All Blob
+    construction and validation must already be complete before this starts. */
+export async function replaceFromBackup(data) {
+  return db.transaction('rw',
+    db.documents, db.documentFiles, db.packageAssets, db.docText,
+    db.readingStates, db.annotations, db.bookmarks,
+    async () => {
+      await Promise.all([
+        db.documents.clear(), db.documentFiles.clear(), db.packageAssets.clear(),
+        db.docText.clear(), db.readingStates.clear(), db.annotations.clear(), db.bookmarks.clear(),
+      ]);
+      if (data.documents.length) await db.documents.bulkPut(data.documents);
+      if (data.documentFiles.length) await db.documentFiles.bulkPut(data.documentFiles);
+      if (data.packageAssets.length) await db.packageAssets.bulkPut(data.packageAssets);
+      if (data.docText.length) await db.docText.bulkPut(data.docText);
+      if (data.readingStates.length) await db.readingStates.bulkPut(data.readingStates);
+      if (data.annotations.length) await db.annotations.bulkPut(data.annotations);
+      if (data.bookmarks.length) await db.bookmarks.bulkPut(data.bookmarks);
     });
 }
 

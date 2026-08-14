@@ -37,7 +37,7 @@ const APP_SOURCES = ["index.html", "sw.js", "preview-host.html"]
 // must find zero hits, and a test file that spells it out would be one.
 const SAME_ORIGIN = new RegExp(["allow", "same", "origin"].join("-"));
 
-test("the same-origin sandbox token appears nowhere in the tree", () => {
+test("the same-origin sandbox token appears nowhere in deployed app sources", () => {
   APP_SOURCES.forEach((path) => {
     assert.doesNotMatch(read(path), SAME_ORIGIN, `${path} must not relax the sandbox`);
   });
@@ -309,14 +309,104 @@ test("package-local classic scripts survive import", async () => {
 test("reconnecting a package rebuilds its assets on both paths", () => {
   const relink = read("src/relink.js");
   assert.match(relink, /pkg\.importZip\(file\)/, "a reconnect must re-extract the ZIP");
-  assert.match(relink, /putPackageAssets\(doc\.id, meta\.packageAssets\)/);
+  assert.match(relink, /packageAssets: meta\.packageAssets/);
+  assert.match(read("src/store.js"), /commitReconnect[\s\S]*db\.packageAssets/,
+    "file bytes, assets and metadata must share one transaction");
   assert.match(relink, /entryPath: meta\.entryPath/);
   assert.match(relink, /packageAssetsReleased: false/);
   // Both the hash-match path and the "Link anyway" path apply the patch, and
   // a ZIP that cannot be read cancels instead of half-linking.
   assert.equal((relink.match(/await packagePatch\(doc, file\)/g) || []).length, 2);
   assert.equal((relink.match(/This ZIP could not be read\./g) || []).length, 2);
-  assert.equal((relink.match(/\.\.\.patch \}\)/g) || []).length, 2);
+  assert.equal((relink.match(/commitReconnect\(doc, hash, file/g) || []).length, 2);
+});
+
+/* ── audit remediation invariants ─────────────────────────────────────── */
+
+test("restore validates and materializes everything before one atomic replacement", () => {
+  const backup = read("src/backup.js");
+  const store = read("src/store.js");
+  assert.match(backup, /validateAndNormalize\(parsed\)/);
+  assert.match(backup, /const normalized = validateAndNormalize\(parsed\);\n\s*await replaceFromBackup\(normalized\)/);
+  assert.doesNotMatch(backup, /deleteEverything\(/, "restore must never clear the live DB first");
+  assert.match(backup, /Duplicate or missing document id/);
+  assert.match(backup, /Invalid document reference/);
+  assert.match(backup, /new Blob\(\[bytes\]/, "Blob creation happens during normalization");
+  assert.match(store, /replaceFromBackup[\s\S]*db\.transaction\('rw'/);
+  assert.match(backup, /settings\.restorePortable/);
+  assert.match(read("src/settings.js"), /normalizeBackupSettings/);
+});
+
+test("import, restore and reconnect use separate file inputs", () => {
+  assert.match(index, /id="filePicker"[^>]*multiple/);
+  assert.match(index, /id="restorePicker"/);
+  assert.match(index, /id="reconnectPicker"/);
+  assert.match(appJs, /const picker = \$\('#reconnectPicker'\)/);
+  assert.match(appJs, /addEventListener\('cancel', onCancel/);
+  assert.match(appJs, /addEventListener\('visibilitychange', onVisibility/);
+});
+
+test("viewer listeners and delayed saves are tied to one document lifecycle", () => {
+  assert.match(appJs, /viewerAbort: null/);
+  assert.match(appJs, /State\.viewerAbort\?\.abort\(\)/);
+  assert.match(appJs, /\{ passive: true, signal \}/);
+  assert.match(appJs, /await flushViewerReading\(\)/);
+  assert.match(appJs, /scrollRatio/);
+  assert.match(appJs, /State\.pendingZoom/);
+});
+
+test("quota retries only publish a successful reconnect after an atomic commit", () => {
+  const storage = read("src/storage.js");
+  const quotaSource = read("src/quota.js");
+  const relink = read("src/relink.js");
+  const librarySource = read("src/library.js");
+  assert.match(storage, /retryAfterRelease/);
+  assert.match(quotaSource, /saved: false/);
+  assert.match(librarySource, /if \(!room\.saved\)[\s\S]*?continue;/);
+  assert.match(read("src/store.js"), /commitDocumentImport[\s\S]*?db\.transaction\('rw', db\.documents, db\.documentFiles/);
+  assert.match(storage, /excludeHashes/);
+  assert.equal((relink.match(/if \(!room\.saved\)/g) || []).length, 2);
+  assert.equal((relink.match(/toast\('Reconnected\.'\)/g) || []).length, 2);
+  assert.match(read("src/retention.js"), /excluded\.has\(doc\.fileHash\)/);
+});
+
+test("read-mode resource URLs are stripped before attachment", () => {
+  const markdown = read("src/handlers/markdown.js");
+  const html = read("src/handlers/html.js");
+  assert.ok(markdown.indexOf("fragment.querySelectorAll('img')") < markdown.indexOf("article.appendChild(fragment)"));
+  assert.match(markdown, /source,picture,video,audio,track/);
+  assert.match(html, /querySelectorAll\('\[src\],\[srcset\],\[poster\],\[background\]'\)/);
+  assert.match(html, /default-src 'none'/);
+});
+
+test("document zoom, dialogs and touch targets use the remediated contracts", () => {
+  const ui = read("src/ui.js");
+  const css = read("assets/app.css");
+  assert.match(appJs, /const DOC_STEPS = \[6, 8, 10, 12, 15, 19\]/);
+  assert.match(appJs, /DOC_STEPS\.includes/);
+  assert.doesNotMatch(appJs, /ZOOM_KINDS = new Set\(\[[^\]]*csv/);
+  assert.match(ui, /onDismiss: \(\) => finish\(undefined\)/);
+  assert.match(ui, /onDismiss: \(\) => finish\(false\)/);
+  assert.match(ui, /aria-labelledby/);
+  assert.match(ui, /event\.shiftKey/);
+  assert.match(css, /html\[data-theme="dark"\]/);
+  assert.match(css, /\.seg button\{[^}]*min-width:var\(--tap\);min-height:var\(--tap\)/);
+});
+
+test("PDF, image and CSV follow-up controls are present without eager CSV Find rendering", () => {
+  const pdf = read("src/handlers/pdf.js");
+  const image = read("src/handlers/image.js");
+  const csv = read("src/handlers/csv.js");
+  assert.match(pdf, /Fit width/);
+  assert.match(pdf, /Fit page/);
+  assert.match(pdf, /pinchDistance/);
+  assert.match(image, /lastTap/);
+  assert.match(image, /imgcanvas/);
+  assert.match(csv, /Auto/);
+  assert.match(csv, /Compact/);
+  assert.match(csv, /Comfortable/);
+  assert.doesNotMatch(csv, /appendRows\(rows\.length\)/);
+  assert.match(csv, /scrollLeft/);
 });
 
 test("releasing a package records that its assets went with the bytes", () => {
@@ -467,6 +557,33 @@ test("magic bytes classify the container formats", () => {
 });
 
 const expiry = await import("../src/expiry.js");
+
+const quota = await import("../src/quota.js");
+
+test("quota retry succeeds after one QuotaExceededError and one release", async () => {
+  let attempts = 0;
+  let releases = 0;
+  const result = await quota.retryAfterRelease(async () => {
+    attempts += 1;
+    if (attempts === 1) throw new DOMException("full", "QuotaExceededError");
+  }, async () => {
+    releases += 1;
+    return { released: 4096 };
+  });
+  assert.deepEqual(result, { saved: true, released: 4096 });
+  assert.equal(attempts, 2);
+  assert.equal(releases, 1);
+});
+
+test("quota retry reports failure after two QuotaExceededErrors", async () => {
+  let attempts = 0;
+  const result = await quota.retryAfterRelease(async () => {
+    attempts += 1;
+    throw new DOMException("still full", "QuotaExceededError");
+  }, async () => ({ released: 2048 }));
+  assert.deepEqual(result, { saved: false, released: 2048 });
+  assert.equal(attempts, 2);
+});
 
 test("expiry boundaries: pins, text formats and Never", () => {
   const now = Date.parse("2026-08-12T12:00:00Z");

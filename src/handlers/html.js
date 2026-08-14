@@ -21,7 +21,7 @@ export const kinds = ['html', 'html-package'];
 const PURIFY_DOCUMENT = {
   WHOLE_DOCUMENT: true,
   RETURN_DOM: true,
-  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base'],
+  FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'base', 'link', 'meta', 'source', 'picture', 'video', 'audio', 'track'],
   ALLOW_DATA_ATTR: false,
   // Data attributes are off, but this one is folio's own marker for a link
   // that points inside the package, so it is allowed back in by name.
@@ -64,6 +64,19 @@ export function packageAssetsMissing(doc, assets) {
     Exported so the review can assert on the exact string Read mode renders. */
 export function sanitizeDocument(source) {
   const root = window.DOMPurify.sanitize(source, PURIFY_DOCUMENT);
+  root.querySelectorAll('[src],[srcset],[poster],[background]').forEach((node) => {
+    node.removeAttribute('src');
+    node.removeAttribute('srcset');
+    node.removeAttribute('poster');
+    node.removeAttribute('background');
+  });
+  const head = root.head || root.querySelector('head');
+  if (head) {
+    const csp = document.createElement('meta');
+    csp.setAttribute('http-equiv', 'Content-Security-Policy');
+    csp.setAttribute('content', "default-src 'none'; img-src data:; style-src 'none'; font-src 'none'; media-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'");
+    head.prepend(csp);
+  }
   return `<!DOCTYPE html>\n${root.outerHTML}`;
 }
 
@@ -292,6 +305,7 @@ export async function render(ctx) {
 
   return {
     finder,
+    textZoomEnabled: () => mode === 'read' || mode === 'source',
     tools: [
       segment,
       el('button', {

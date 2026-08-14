@@ -30,6 +30,12 @@ export async function render(ctx) {
   clear(body);
   body.appendChild(pre);
   await paint();
+  const state = await ctx.readingState();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const max = Math.max(0, body.scrollHeight - body.clientHeight);
+    const ratio = Number(state.scrollRatio ?? state.progress);
+    body.scrollTop = Number.isFinite(ratio) && ratio > 0 ? Math.min(max, ratio * max) : Math.min(max, Number(state.scrollY || 0));
+  }));
 
   return {
     finder,

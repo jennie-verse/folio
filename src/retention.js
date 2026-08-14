@@ -64,11 +64,12 @@ export async function releaseExpired(docs) {
 
 /** Storage ran out while saving. Release the oldest unpinned copies first and
     never touch a pinned document (plan 7장, spec 7장 exception). */
-export async function releaseOldestUnpinned(neededBytes) {
+export async function releaseOldestUnpinned(neededBytes, { excludeHashes = [] } = {}) {
+  const excluded = new Set(excludeHashes.filter(Boolean));
   const docs = await listDocuments();
   const candidates = [];
   for (const doc of docs) {
-    if (doc.pinned || NEVER_RELEASED.has(doc.kind)) continue;
+    if (doc.pinned || NEVER_RELEASED.has(doc.kind) || excluded.has(doc.fileHash)) continue;
     const file = doc.fileHash ? await db.documentFiles.get(doc.fileHash) : null;
     if (file) candidates.push({ doc, bytes: file.bytes || 0 });
   }

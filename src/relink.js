@@ -6,8 +6,9 @@
 
 import { el, formatBytes, formatWhen, confirmDialog, toast } from './ui.js';
 import { hashBlob } from './hashing.js';
-import { saveFile, patchDocument, touch, putPackageAssets } from './store.js';
+import { commitReconnect } from './store.js';
 import * as pkg from './package.js';
+import { withRoom } from './storage.js';
 
 /** Reconnecting a package has to rebuild its assets.
 
@@ -22,8 +23,8 @@ import * as pkg from './package.js';
 async function packagePatch(doc, file) {
   if (doc.kind !== 'html-package') return {};
   const meta = await pkg.importZip(file);
-  await putPackageAssets(doc.id, meta.packageAssets);
   return {
+    packageAssets: meta.packageAssets,
     entryPath: meta.entryPath,
     entryContent: meta.content,
     packageFileCount: meta.packageFileCount,
@@ -53,9 +54,13 @@ export async function reconnect(doc, { pickFile, importFiles }) {
       toast('This ZIP could not be read.');
       return 'cancelled';
     }
-    await saveFile(hash, doc.id, file);
-    await patchDocument(doc.id, { released: false, size: file.size, fileName: file.name, ...patch });
-    await touch(doc.id);
+    const { packageAssets, ...docPatch } = patch;
+    const room = await withRoom(
+      () => commitReconnect(doc, hash, file, { size: file.size, fileName: file.name, ...docPatch }, packageAssets ?? null),
+      file.size,
+      { excludeHashes: [doc.fileHash, hash] },
+    );
+    if (!room.saved) { toast('Storage is full — the document still needs its original file.'); return 'cancelled'; }
     toast('Reconnected.');
     return 'linked';
   }
@@ -84,9 +89,13 @@ export async function reconnect(doc, { pickFile, importFiles }) {
       toast('This ZIP could not be read.');
       return 'cancelled';
     }
-    await saveFile(hash, doc.id, file);
-    await patchDocument(doc.id, { released: false, fileHash: hash, size: file.size, fileName: file.name, ...patch });
-    await touch(doc.id);
+    const { packageAssets, ...docPatch } = patch;
+    const room = await withRoom(
+      () => commitReconnect(doc, hash, file, { size: file.size, fileName: file.name, ...docPatch }, packageAssets ?? null),
+      file.size,
+      { excludeHashes: [doc.fileHash, hash] },
+    );
+    if (!room.saved) { toast('Storage is full — the document still needs its original file.'); return 'cancelled'; }
     toast('Reconnected.');
     return 'linked';
   }

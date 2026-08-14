@@ -51,4 +51,73 @@ await writeFile(join(root, "two-folders.zip"), zip([
   { name: "two/index.html", data: index },
 ]));
 
+// Browser QA fixtures are synthetic and intentionally distinct from the
+// unavailable real WebApp/sample ZIPs.
+await writeFile(join(root, "long-reading.txt"), Array.from({ length: 500 }, (_, i) => `Line ${i + 1}: folio reading-position regression fixture 한국어`).join("\n"));
+await writeFile(join(root, "long-reading.md"), Array.from({ length: 240 }, (_, i) => `## Section ${i + 1}\n\nMarkdown reading position paragraph ${i + 1}. 한국어 본문입니다.`).join("\n\n"));
+await writeFile(join(root, "resource-read.md"), `# Markdown Resource Test
+
+![relative](relative.png)
+
+<img src="https://example.invalid/remote.png" srcset="https://example.invalid/remote-2x.png 2x" alt="remote">
+<picture><source srcset="https://example.invalid/picture.png"><img src="relative-picture.png" alt="picture"></picture>
+<video poster="https://example.invalid/poster.png" src="relative-video.mp4"></video>`);
+await writeFile(join(root, "large-table.csv"), [
+  Array.from({ length: 16 }, (_, i) => `Column ${i + 1}`).join(","),
+  ...Array.from({ length: 2000 }, (_, row) => Array.from({ length: 16 }, (_, col) => `R${row + 1}C${col + 1}`).join(",")),
+].join("\n"));
+await writeFile(join(root, "resource-read.html"), `<!doctype html><html><head><title>Resource Read Test</title><link rel="stylesheet" href="https://example.invalid/x.css"></head><body>
+<h1>Resource Read Test</h1><div id="script-state">not run</div>
+<img src="relative-image.png" srcset="https://example.invalid/a.png 2x" alt="relative">
+<picture><source srcset="https://example.invalid/b.png"><img src="https://example.invalid/c.png" alt="remote"></picture>
+<video poster="https://example.invalid/poster.png" src="relative-video.mp4"></video>
+<script>document.getElementById('script-state').textContent='ran';</script></body></html>`);
+
+const restoredBytes = Buffer.from("Restored text fixture 한국어");
+const restoreEnvelope = {
+  format: "folio-backup", schemaVersion: 1, appVersion: "test", exportedAt: new Date(0).toISOString(),
+  documents: [{
+    doc: { id: "restore-doc-1", kind: "text", fileName: "restored.txt", title: "Restored fixture", size: restoredBytes.length, fileHash: "restore-hash-1", tags: [], addedAt: 1, updatedAt: 1, lastTouchedAt: 1, pinned: false },
+    text: restoredBytes.toString(), file: { bytes: restoredBytes.length, data: restoredBytes.toString("base64") },
+  }],
+  readingStates: [{ docId: "restore-doc-1", scrollY: 12, scrollRatio: 0.25 }], annotations: [], bookmarks: [],
+  settings: { fs: 6, theme: "dark", retentionDays: 14, sort: "title", stateFilter: "all", typeFilter: ["text"], releaseConfirmed: true, viewerHintSeen: true, syncToken: "must-not-restore", lastCleanupAt: "must-not-restore" },
+};
+await writeFile(join(root, "restore-valid.json"), JSON.stringify(restoreEnvelope));
+await writeFile(join(root, "restore-corrupt-base64.json"), JSON.stringify({ ...restoreEnvelope, documents: [{ ...restoreEnvelope.documents[0], file: { bytes: restoredBytes.length, data: "%%%broken%%%" } }] }));
+await writeFile(join(root, "restore-future.json"), JSON.stringify({ ...restoreEnvelope, schemaVersion: 999 }));
+await writeFile(join(root, "restore-invalid-reference.json"), JSON.stringify({ ...restoreEnvelope, readingStates: [{ docId: "missing-doc", scrollY: 10 }] }));
+await writeFile(join(root, "restore-needs-image.json"), JSON.stringify({
+  ...restoreEnvelope,
+  documents: [{ doc: { id: "needs-image-1", kind: "image", fileName: "icon-512.png", title: "Needs image", size: 3711, fileHash: "82c1cca954069c7b4dff6e1b3cf12b70c8c9cb3435364ebe20298d613be8ff8f", tags: [], addedAt: 1, updatedAt: 1, lastTouchedAt: 1, pinned: false } }],
+  readingStates: [], settings: { fs: 12, theme: "system", retentionDays: 7, sort: "recent", stateFilter: "all", typeFilter: [] },
+}));
+
+function simplePdf() {
+  const stream = (label) => {
+    const body = `BT /F1 24 Tf 72 720 Td (${label}) Tj ET\n`;
+    return `<< /Length ${Buffer.byteLength(body)} >>\nstream\n${body}endstream`;
+  };
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents 4 0 R >>",
+    stream("Page 1"),
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents 6 0 R >>",
+    stream("Page 2"),
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents 8 0 R >>",
+    stream("Page 3"),
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let text = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(text)); text += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(text);
+  text += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => { text += `${String(offset).padStart(10, "0")} 00000 n \n`; });
+  text += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return text;
+}
+await writeFile(join(root, "three-pages.pdf"), simplePdf());
+
 console.log(`Created synthetic fixtures in ${root}`);

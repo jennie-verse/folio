@@ -44,18 +44,24 @@ export async function render(ctx) {
     clear(article);
     const html = marked.parse(source, { gfm: true, breaks: false, async: false });
     const fragment = window.DOMPurify.sanitize(html, PURIFY_CONFIG);
-    article.appendChild(fragment);
-
-    // Relative images cannot resolve — a Markdown file carries no assets.
-    article.querySelectorAll('img').forEach((img) => {
+    // Rewrite every fetch-capable node while the fragment is detached. Once a
+    // src-bearing node enters the live document the browser may start a
+    // request before the next JavaScript statement can remove it.
+    fragment.querySelectorAll('img').forEach((img) => {
       const src = img.getAttribute('src') || '';
-      if (!/^(?:https?:|data:|blob:)/i.test(src)) {
+      if (!/^data:/i.test(src)) {
         img.replaceWith(el('span', { class: 'faint small', text: `[image: ${img.getAttribute('alt') || src}]` }));
       }
     });
+    fragment.querySelectorAll('source,picture,video,audio,track').forEach((node) => {
+      node.removeAttribute('src');
+      node.removeAttribute('srcset');
+      node.removeAttribute('poster');
+      if (node.matches('source,track')) node.remove();
+    });
     // javascript: links are stripped by DOMPurify; remaining external links are
     // confirmed by address before opening (plan 10장).
-    article.querySelectorAll('a[href]').forEach((anchor) => {
+    fragment.querySelectorAll('a[href]').forEach((anchor) => {
       const href = anchor.getAttribute('href') || '';
       if (/^https?:/i.test(href)) {
         anchor.addEventListener('click', (event) => { event.preventDefault(); ctx.openExternal(href); });
@@ -63,6 +69,7 @@ export async function render(ctx) {
         anchor.removeAttribute('href');
       }
     });
+    article.appendChild(fragment);
     if (hljs) article.querySelectorAll('pre code').forEach((block) => { try { hljs.highlightElement(block); } catch { /* unknown language */ } });
   }
 
@@ -71,6 +78,13 @@ export async function render(ctx) {
   body.appendChild(article);
   body.appendChild(raw);
   paintRendered();
+
+  const state = await ctx.readingState();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const max = Math.max(0, body.scrollHeight - body.clientHeight);
+    const ratio = Number(state.scrollRatio ?? state.progress);
+    body.scrollTop = Number.isFinite(ratio) && ratio > 0 ? Math.min(max, ratio * max) : Math.min(max, Number(state.scrollY || 0));
+  }));
 
   let showingSource = false;
 

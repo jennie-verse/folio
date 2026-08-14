@@ -14,7 +14,6 @@ import * as syncRunner from './sync-runner.js';
 import * as pkg from './package.js';
 import { TAG_OF, KINDS, detect } from './detect.js';
 import { APP_BUILD } from './version.js';
-import { FONT_STEPS } from './settings.js';
 
 import * as textHandler from './handlers/text.js';
 import * as markdownHandler from './handlers/markdown.js';
@@ -41,6 +40,9 @@ const State = {
   assetReturn: null,   // {docId} — where Back goes from an opened package asset
   storageOk: true,
   pendingUndo: new Map(),
+  viewerAbort: null,
+  scrollSaveTimer: null,
+  pendingZoom: null,
 };
 
 /* ── routing ───────────────────────────────────────────────────────────── */
@@ -130,14 +132,40 @@ function pickFiles() { $('#filePicker').click(); }
 
 function pickOneFile() {
   return new Promise((resolve) => {
-    const picker = $('#filePicker');
-    const once = () => {
-      picker.removeEventListener('change', once);
-      const file = picker.files && picker.files[0];
+    const picker = $('#reconnectPicker');
+    let settled = false;
+    let leftWindow = false;
+    let focusTimer = null;
+    const finish = (file = null) => {
+      if (settled) return;
+      settled = true;
+      if (focusTimer) clearTimeout(focusTimer);
+      picker.removeEventListener('change', onChange);
+      picker.removeEventListener('cancel', onCancel);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
       picker.value = '';
       resolve(file || null);
     };
-    picker.addEventListener('change', once);
+    const onChange = () => finish(picker.files && picker.files[0]);
+    const onCancel = () => finish(null);
+    const onBlur = () => { leftWindow = true; };
+    const onFocus = () => {
+      if (!leftWindow || settled) return;
+      // Some Safari versions do not send the input `cancel` event. Let a
+      // pending `change` win, then resolve a genuine return-without-a-file.
+      focusTimer = setTimeout(() => finish(picker.files && picker.files[0]), 250);
+    };
+    const onVisibility = () => {
+      if (document.hidden) { leftWindow = true; return; }
+      onFocus();
+    };
+    picker.addEventListener('change', onChange, { once: true });
+    picker.addEventListener('cancel', onCancel, { once: true });
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
     picker.click();
   });
 }
@@ -249,7 +277,7 @@ function downloadBlob(blob, name) {
 /** Single delete is undoable, so it runs without a dialog (spec 7장).
     The sync tombstone is written only after the Undo window closes. */
 async function deleteDocument(doc) {
-  if (State.current && State.current.id === doc.id) closeViewer();
+  if (State.current && State.current.id === doc.id) await closeViewer();
   await store.softDelete(doc.id);
   await refreshLibrary();
 
@@ -347,7 +375,7 @@ async function openDocument(doc) {
 
 /** Mount one document — stored or transient — into the viewer chrome. */
 async function showInViewer(record, blob, { transient = false } = {}) {
-  closeViewer();
+  await closeViewer();
   State.current = record;
   State.transient = transient;
   bottomText = '';
@@ -395,8 +423,17 @@ async function showInViewer(record, blob, { transient = false } = {}) {
     bottom.classList.add('hidden');
   }
 
-  applyDocZoom(transient ? {} : await store.getReadingState(record.id));
+  const reading = transient ? {} : await store.getReadingState(record.id);
+  applyDocZoom(reading);
   attachBodyGestures(body);
+  if (['text', 'markdown'].includes(record.kind)) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const max = Math.max(0, body.scrollHeight - body.clientHeight);
+      const ratio = Number(reading.scrollRatio ?? reading.progress);
+      const target = Number.isFinite(ratio) && ratio > 0 ? ratio * max : Number(reading.scrollY || 0);
+      body.scrollTop = Math.max(0, Math.min(max, target));
+    }));
+  }
 
   if (!settings.get('viewerHintSeen')) {
     settings.set('viewerHintSeen', true);
@@ -490,32 +527,58 @@ async function leaveViewer() {
     const parent = await store.getDocument(back.docId);
     if (parent) { await openDocument(parent); return; }
   }
-  closeViewer();
+  await closeViewer();
   show('library');
   await refreshLibrary();
 }
 
-function closeViewer() {
+async function flushViewerReading() {
+  if (State.scrollSaveTimer) {
+    clearTimeout(State.scrollSaveTimer);
+    State.scrollSaveTimer = null;
+  }
+  const current = State.current;
+  if (!current || State.transient) return;
+  if (State.view && State.view.flush) await State.view.flush();
+  if (['text', 'markdown'].includes(current.kind)) {
+    const body = $('#viewerBody');
+    const max = Math.max(1, body.scrollHeight - body.clientHeight);
+    await store.putReadingState(current.id, {
+      scrollY: body.scrollTop,
+      scrollRatio: Math.min(1, body.scrollTop / max),
+      progress: Math.min(1, body.scrollTop / max),
+    });
+  }
+  if (State.pendingZoom !== null && ZOOM_KINDS.has(current.kind)) {
+    await store.putReadingState(current.id, { zoom: State.pendingZoom });
+    State.pendingZoom = null;
+  }
+}
+
+async function closeViewer() {
+  await flushViewerReading().catch(() => {});
+  State.viewerAbort?.abort();
+  State.viewerAbort = null;
   if (State.view && State.view.destroy) { try { State.view.destroy(); } catch { /* already gone */ } }
   State.view = null;
   State.current = null;
   State.transient = false;
   const body = $('#viewerBody');
-  body.removeEventListener('scroll', onViewerScroll);
   clear(body);
   clear($('#viewerTools'));
   clear($('#viewerBottom'));
 }
 
-let scrollSaveTimer = null;
 function onViewerScroll() {
   const body = $('#viewerBody');
-  if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
-  scrollSaveTimer = setTimeout(() => {
+  const docId = State.current && State.current.id;
+  if (State.scrollSaveTimer) clearTimeout(State.scrollSaveTimer);
+  State.scrollSaveTimer = setTimeout(() => {
     if (!State.current || State.transient) return;
     const max = Math.max(1, body.scrollHeight - body.clientHeight);
-    store.putReadingState(State.current.id, {
+    store.putReadingState(docId, {
       scrollY: body.scrollTop,
+      scrollRatio: Math.min(1, body.scrollTop / max),
       progress: Math.min(1, body.scrollTop / max),
     }).catch(() => {});
   }, 700);
@@ -523,10 +586,16 @@ function onViewerScroll() {
 
 /* ── document text size: pinch, with a single-pointer alternative ──────── */
 
-const ZOOM_KINDS = new Set(['text', 'markdown', 'html', 'csv']);
+const ZOOM_KINDS = new Set(['text', 'markdown', 'html']);
+const DOC_STEPS = [6, 8, 10, 12, 15, 19];
+
+function textZoomAvailable() {
+  if (!State.current || !ZOOM_KINDS.has(State.current.kind)) return false;
+  return !State.view || !State.view.textZoomEnabled || State.view.textZoomEnabled();
+}
 
 function applyDocZoom(state) {
-  const step = FONT_STEPS.includes(Number(state && state.zoom)) ? Number(state.zoom) : 15;
+  const step = DOC_STEPS.includes(Number(state && state.zoom)) ? Number(state.zoom) : 15;
   document.documentElement.style.setProperty('--fs-doc', `${step}px`);
 }
 
@@ -536,18 +605,20 @@ async function setDocZoom(step) {
   await store.putReadingState(State.current.id, { zoom: step });
 }
 
-const DOC_STEPS = [6, 8, 10, 12, 15, 19];
-
 function attachBodyGestures(body) {
-  body.addEventListener('scroll', onViewerScroll, { passive: true });
+  State.viewerAbort?.abort();
+  const controller = new AbortController();
+  State.viewerAbort = controller;
+  const signal = controller.signal;
+  body.addEventListener('scroll', onViewerScroll, { passive: true, signal });
 
   // Tap the page to hide both bars; the safe-area padding stays (spec 3-1).
   body.addEventListener('click', (event) => {
     if (event.target.closest('a,button,input,select,textarea,iframe,mark')) return;
     $('#viewer').classList.toggle('bars-hidden');
-  });
+  }, { signal });
 
-  if (!State.current || !ZOOM_KINDS.has(State.current.kind)) return;
+  if (!textZoomAvailable()) return;
 
   // Custom pinch, body only, so the browser's own page zoom keeps working.
   let startDistance = 0;
@@ -559,6 +630,7 @@ function attachBodyGestures(body) {
     return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
   };
   body.addEventListener('pointerdown', (event) => {
+    if (!textZoomAvailable()) return;
     if (event.pointerType !== 'touch') return;
     active.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (active.size === 2) {
@@ -567,7 +639,7 @@ function attachBodyGestures(body) {
       startIndex = Math.max(0, DOC_STEPS.indexOf(current));
       if (startIndex < 0) startIndex = 4;
     }
-  });
+  }, { signal });
   body.addEventListener('pointermove', (event) => {
     if (!active.has(event.pointerId)) return;
     active.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -578,11 +650,22 @@ function attachBodyGestures(body) {
     const next = Math.max(0, Math.min(DOC_STEPS.length - 1, startIndex + shift));
     startDistance = distance();
     startIndex = next;
-    setDocZoom(DOC_STEPS[next]);
-  });
-  const drop = (event) => { active.delete(event.pointerId); if (active.size < 2) startDistance = 0; };
-  body.addEventListener('pointerup', drop);
-  body.addEventListener('pointercancel', drop);
+    State.pendingZoom = DOC_STEPS[next];
+    document.documentElement.style.setProperty('--fs-doc', `${State.pendingZoom}px`);
+  }, { signal });
+  const drop = (event) => {
+    active.delete(event.pointerId);
+    if (active.size < 2) {
+      startDistance = 0;
+      if (State.pendingZoom !== null && State.current && !State.transient) {
+        const zoom = State.pendingZoom;
+        State.pendingZoom = null;
+        store.putReadingState(State.current.id, { zoom }).catch(() => {});
+      }
+    }
+  };
+  body.addEventListener('pointerup', drop, { signal });
+  body.addEventListener('pointercancel', drop, { signal });
 }
 
 /** The title button is the single-pointer alternative to the pinch, required
@@ -592,7 +675,7 @@ function openDocumentSheet() {
   if (!doc) return;
   customSheet((panel, close) => {
     panel.appendChild(el('h2', { text: doc.title || doc.fileName || 'Document' }));
-    if (ZOOM_KINDS.has(doc.kind)) {
+    if (textZoomAvailable()) {
       panel.appendChild(el('p', { class: 'small muted', text: 'Text size' }));
       const segment = el('div', { class: 'seg', role: 'group', 'aria-label': 'Text size' });
       DOC_STEPS.forEach((step) => {
@@ -776,11 +859,17 @@ async function restoreBackup(file) {
     danger: true,
   });
   if (!ok) return;
-  const restored = await backup.restore(parsed);
-  search.invalidateTextIndex();
-  await refreshLibrary();
-  await paintUsage();
-  toast(`Restored ${restored} document${restored === 1 ? '' : 's'}.`);
+  try {
+    const restored = await backup.restore(parsed);
+    search.invalidateTextIndex();
+    await refreshLibrary();
+    await paintUsage();
+    paintSegments();
+    toast(`Restored ${restored} document${restored === 1 ? '' : 's'}.`);
+  } catch (error) {
+    console.warn('restore', error);
+    toast('Restore failed — your existing library was not changed.');
+  }
 }
 
 async function deleteAll() {

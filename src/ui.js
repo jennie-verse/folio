@@ -50,25 +50,48 @@ export function toast(message, { actionLabel, onAction, ms } = {}) {
 
 /* ── overlays ──────────────────────────────────────────────────────────── */
 
-function openOverlay(build) {
+let dialogSequence = 0;
+function openOverlay(build, { onDismiss } = {}) {
   const host = $('#overlayHost');
   const previous = document.activeElement;
   const overlay = el('div', { class: 'overlay' });
   const panel = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' });
   overlay.appendChild(panel);
 
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     overlay.remove();
     document.removeEventListener('keydown', onKey, true);
     if (previous && previous.focus) previous.focus();
   };
+  const dismiss = () => {
+    if (closed) return;
+    if (onDismiss) onDismiss();
+    close();
+  };
   function onKey(event) {
-    if (event.key === 'Escape') { event.preventDefault(); close(); }
+    if (event.key === 'Escape') { event.preventDefault(); dismiss(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(panel.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+    if (!focusable.length) { event.preventDefault(); panel.focus(); return; }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
-  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) dismiss(); });
   document.addEventListener('keydown', onKey, true);
 
   build(panel, close);
+  const title = panel.querySelector('h1,h2,h3');
+  if (title) {
+    title.id = title.id || `folio-dialog-${++dialogSequence}`;
+    panel.setAttribute('aria-labelledby', title.id);
+  } else {
+    panel.setAttribute('aria-label', 'Dialog');
+  }
   host.appendChild(overlay);
   const first = panel.querySelector('button, input, select, textarea');
   if (first) first.focus();
@@ -113,7 +136,7 @@ export function choose(title, options, current) {
       });
       panel.appendChild(menu);
       panel.appendChild(el('button', { type: 'button', text: 'Cancel', onclick: () => { close(); finish(undefined); } }));
-    });
+    }, { onDismiss: () => finish(undefined) });
   });
 }
 
@@ -138,7 +161,7 @@ export function confirmDialog({ title, message, confirmLabel = 'OK', cancelLabel
       }
       row.appendChild(el('button', { type: 'button', text: cancelLabel, onclick: () => { close(); finish(false); } }));
       panel.appendChild(row);
-    });
+    }, { onDismiss: () => finish(false) });
   });
 }
 

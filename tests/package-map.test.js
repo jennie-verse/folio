@@ -12,7 +12,7 @@ function check(name, condition, detail) {
    reachable when this page is served from a local review server. On the
    deployed site that is not a failure — the check simply cannot run. */
 function skip(name, detail) {
-  results.push({ name, ok: true, skipped: true, detail });
+  results.push({ name, ok: false, skipped: true, detail });
 }
 
 /* A page that links to a PDF, draws one image, and does both with a third
@@ -118,12 +118,14 @@ async function run() {
     check('mind-map.zip tags every link, including ones the archive lacks', false, String(error.message || error));
   }
 
-  const failed = results.filter((row) => !row.ok).length;
+  const failed = results.filter((row) => !row.ok && !row.skipped).length;
   const skipped = results.filter((row) => row.skipped).length;
   const head = document.getElementById('head');
   head.textContent = failed
     ? `${failed} of ${results.length} checks FAILED`
-    : `All ${results.length - skipped} checks passed${skipped ? ` (${skipped} skipped)` : ''}`;
+    : skipped
+      ? `${results.length - skipped} checks passed, ${skipped} UNVERIFIED (required real fixture missing)`
+      : `All ${results.length} checks passed`;
 
   const list = document.getElementById('results');
   results.forEach((row) => {
