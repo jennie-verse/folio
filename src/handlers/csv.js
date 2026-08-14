@@ -18,6 +18,33 @@ const DELIMITERS = [
 
 const VIRTUAL_ROWS = 400;   // rendered at once; more are appended on scroll
 
+const yieldToMain = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** Search large tables without monopolizing the main thread. Options are
+    injectable so the yielding and cancellation contract can be exercised in
+    Node without a browser clock. A cancelled search returns null. */
+export async function findRowsChunked(rows, value, {
+  budgetMs = 8,
+  now = () => performance.now(),
+  yieldControl = yieldToMain,
+  isCancelled = () => false,
+} = {}) {
+  const needle = String(value || '').trim().toLocaleLowerCase();
+  if (!needle) return [];
+  const hits = [];
+  let sliceStarted = now();
+  for (let index = 0; index < rows.length; index += 1) {
+    if (isCancelled()) return null;
+    if ((rows[index] || []).some((cell) => String(cell).toLocaleLowerCase().includes(needle))) hits.push(index);
+    if ((index + 1) % 32 === 0 && now() - sliceStarted >= budgetMs) {
+      await yieldControl();
+      if (isCancelled()) return null;
+      sliceStarted = now();
+    }
+  }
+  return hits;
+}
+
 function parse(text, delimiter) {
   const result = window.Papa.parse(text, {
     delimiter: delimiter || '',       // '' lets papaparse detect
@@ -59,6 +86,7 @@ export async function render(ctx) {
   let saveTimer = null;
   let searchMatches = [];
   let searchAt = -1;
+  let searchGeneration = 0;
 
   function rowNode(row, index) {
     const line = el('tr', { dataset: { row: String(index + 1) } });
@@ -153,12 +181,13 @@ export async function render(ctx) {
   });
 
   const finder = {
-    search(value) {
-      const needle = String(value || '').trim().toLocaleLowerCase();
-      searchMatches = needle ? rows.reduce((hits, row, index) => {
-        if (row.some((cell) => String(cell).toLocaleLowerCase().includes(needle))) hits.push(index);
-        return hits;
-      }, []) : [];
+    async search(value) {
+      const generation = ++searchGeneration;
+      const matches = await findRowsChunked(rows, value, {
+        isCancelled: () => generation !== searchGeneration,
+      });
+      if (matches === null || generation !== searchGeneration) return null;
+      searchMatches = matches;
       searchAt = searchMatches.length ? 0 : -1;
       if (searchAt >= 0) this.show();
       return searchMatches.length;
@@ -174,7 +203,7 @@ export async function render(ctx) {
     },
     next() { if (searchMatches.length) { searchAt = (searchAt + 1) % searchMatches.length; this.show(); } },
     previous() { if (searchMatches.length) { searchAt = (searchAt - 1 + searchMatches.length) % searchMatches.length; this.show(); } },
-    clear() { searchMatches = []; searchAt = -1; },
+    clear() { searchGeneration += 1; searchMatches = []; searchAt = -1; },
   };
 
   return {

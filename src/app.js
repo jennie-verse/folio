@@ -538,7 +538,8 @@ async function flushViewerReading() {
     State.scrollSaveTimer = null;
   }
   const current = State.current;
-  if (!current || State.transient) return;
+  if (!current) { State.pendingZoom = null; return; }
+  if (State.transient) { State.pendingZoom = null; return; }
   if (State.view && State.view.flush) await State.view.flush();
   if (['text', 'markdown'].includes(current.kind)) {
     const body = $('#viewerBody');
@@ -557,6 +558,7 @@ async function flushViewerReading() {
 
 async function closeViewer() {
   await flushViewerReading().catch(() => {});
+  State.pendingZoom = null;
   State.viewerAbort?.abort();
   State.viewerAbort = null;
   if (State.view && State.view.destroy) { try { State.view.destroy(); } catch { /* already gone */ } }
@@ -602,6 +604,7 @@ function applyDocZoom(state) {
 async function setDocZoom(step) {
   if (!State.current) return;
   document.documentElement.style.setProperty('--fs-doc', `${step}px`);
+  if (State.transient) return;
   await store.putReadingState(State.current.id, { zoom: step });
 }
 
@@ -704,8 +707,12 @@ function openFindSheet(finder) {
     panel.appendChild(el('h2', { text: 'Find' }));
     const input = el('input', { type: 'search', 'aria-label': 'Find in document', enterkeyhint: 'search' });
     const count = el('p', { class: 'small muted', text: '' });
-    const run = () => {
-      const found = finder.search(input.value);
+    let request = 0;
+    const run = async () => {
+      const current = ++request;
+      count.textContent = 'Searching…';
+      const found = await finder.search(input.value);
+      if (current !== request || found === null) return;
       count.textContent = found ? `${found} matches` : 'No matches';
     };
     input.addEventListener('keydown', (event) => {
@@ -717,7 +724,7 @@ function openFindSheet(finder) {
       el('button', { class: 'primary', type: 'button', text: 'Find', onclick: run }),
       el('button', { type: 'button', text: 'Previous', onclick: () => finder.previous() }),
       el('button', { type: 'button', text: 'Next', onclick: () => finder.next() }),
-      el('button', { type: 'button', text: 'Clear', onclick: () => { finder.clear(); count.textContent = ''; } }),
+      el('button', { type: 'button', text: 'Clear', onclick: () => { request += 1; finder.clear(); count.textContent = ''; } }),
     ]));
   });
 }

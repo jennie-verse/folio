@@ -14,7 +14,7 @@
    which is why the size is announced before saving. */
 
 import { db, listDocuments, getDocText, getPackageAssets, replaceFromBackup } from './store.js';
-import { base64, fromBase64 } from './package.js';
+import { base64, fromBase64, validateManifest } from './package.js';
 import { formatBytes, todayStamp } from './ui.js';
 import { APP_BUILD } from './version.js';
 import * as settings from './settings.js';
@@ -161,19 +161,17 @@ export function validateAndNormalize(parsed) {
     }
 
     if (doc.kind === 'html-package') {
-      let assetCount = 0;
       if (entry.packageAssets !== undefined && (!entry.packageAssets || typeof entry.packageAssets !== 'object' || Array.isArray(entry.packageAssets))) {
         throw new Error(`Invalid package assets for ${id}.`);
       }
-      Object.entries(entry.packageAssets || {}).forEach(([path, asset]) => {
-        if (!path || !asset || typeof asset !== 'object') throw new Error(`Invalid package asset for ${id}.`);
-        decodeBase64(asset.data, `package asset ${path}`);
-        packageAssets.push({ docId: id, path, asset: { ...asset } });
-        assetCount += 1;
+      const manifest = validateManifest(entry.packageAssets || {});
+      Object.entries(manifest).forEach(([path, asset]) => {
+        packageAssets.push({ docId: id, path, asset });
       });
       if (entry.entryContent !== undefined && typeof entry.entryContent !== 'string') throw new Error(`Invalid package entry content for ${id}.`);
       if (entry.entryContent !== undefined) record.entryContent = entry.entryContent;
-      if (!record.released && !assetCount && record.packageFileCount > 1) throw new Error(`Missing package assets for ${id}.`);
+      const expectedAssets = Math.max(0, Number(record.packageFileCount || 1) - 1);
+      if (!record.released && Object.keys(manifest).length !== expectedAssets) throw new Error(`Missing package assets for ${id}.`);
     } else if (entry.packageAssets !== undefined) {
       throw new Error(`Unexpected package assets for ${id}.`);
     }

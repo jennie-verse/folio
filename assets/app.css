@@ -217,9 +217,9 @@ mark{background:var(--warn);color:var(--status-ink)}
 .imgcanvas{position:relative;min-width:1px;min-height:1px;margin-left:auto;margin-right:auto}
 .imgcanvas img{position:absolute;left:50%;top:50%;max-width:none;max-height:none;transform-origin:center center;display:block}
 
-.pdfpages{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px}
-.pdfpage{position:relative;background:var(--card);box-shadow:var(--shadow);max-width:100%}
-.pdfpage canvas{display:block;max-width:100%;height:auto}
+.pdfpages{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:10px;width:max-content;min-width:100%;touch-action:pan-x pan-y}
+.pdfpage{position:relative;background:var(--card);box-shadow:var(--shadow);max-width:none;margin-inline:auto}
+.pdfpage canvas{display:block;max-width:none;height:auto}
 
 /* PDF.js text layer — the selectable, searchable text drawn over the canvas.
    Taken from pdfjs-dist 6.2.108 web/pdf_viewer.css, trimmed to what folio uses

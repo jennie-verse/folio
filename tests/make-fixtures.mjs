@@ -87,6 +87,25 @@ await writeFile(join(root, "restore-valid.json"), JSON.stringify(restoreEnvelope
 await writeFile(join(root, "restore-corrupt-base64.json"), JSON.stringify({ ...restoreEnvelope, documents: [{ ...restoreEnvelope.documents[0], file: { bytes: restoredBytes.length, data: "%%%broken%%%" } }] }));
 await writeFile(join(root, "restore-future.json"), JSON.stringify({ ...restoreEnvelope, schemaVersion: 999 }));
 await writeFile(join(root, "restore-invalid-reference.json"), JSON.stringify({ ...restoreEnvelope, readingStates: [{ docId: "missing-doc", scrollY: 10 }] }));
+await writeFile(join(root, "malformed-package-backup.json"), JSON.stringify({
+  ...restoreEnvelope,
+  documents: [{
+    doc: { id: "malformed-package", kind: "html-package", title: "Malformed package", fileName: "malformed.zip", fileHash: "malformed-package-hash", packageFileCount: 2 },
+    file: { bytes: 1, data: "QQ==" }, entryContent: "<!doctype html><title>Malformed</title>",
+    packageAssets: { "scripts/App.js": { data: "QQ==" } },
+  }],
+  readingStates: [], annotations: [], bookmarks: [], settings: {},
+}));
+await writeFile(join(root, "transient-package-backup.json"), JSON.stringify({
+  ...restoreEnvelope,
+  documents: [{
+    doc: { id: "transient-package", kind: "html-package", title: "Transient package", fileName: "transient.zip", fileHash: "transient-package-hash", packageFileCount: 2, hasScripts: false, pinned: false },
+    file: { bytes: 1, data: "QQ==" },
+    entryContent: '<!doctype html><title>Transient package</title><a href="notes.txt">Open note</a>',
+    packageAssets: { "notes.txt": { mime: "text/plain", encoding: "base64", data: "VHJhbnNpZW50IHBhY2thZ2Ugbm90ZQ==", bytes: 22 } },
+  }],
+  readingStates: [], annotations: [], bookmarks: [], settings: {},
+}));
 await writeFile(join(root, "restore-needs-image.json"), JSON.stringify({
   ...restoreEnvelope,
   documents: [{ doc: { id: "needs-image-1", kind: "image", fileName: "icon-512.png", title: "Needs image", size: 3711, fileHash: "82c1cca954069c7b4dff6e1b3cf12b70c8c9cb3435364ebe20298d613be8ff8f", tags: [], addedAt: 1, updatedAt: 1, lastTouchedAt: 1, pinned: false } }],

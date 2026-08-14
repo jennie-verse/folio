@@ -91,9 +91,16 @@ export async function render(ctx) {
 
   let rotation = 0;
   let scale = 1;
+  let currentPage = 1;
+  let paintGeneration = 0;
+  let navigationLocked = false;
+  let navigationUnlockTimer = 0;
+  let scrollFrame = 0;
   const gestures = new AbortController();
   const slots = [];
   const rendered = new Set();
+  const slider = el('input', { type: 'range', min: '1', max: String(pdf.numPages), value: '1', 'aria-label': 'Page' });
+  const zoomSlider = el('input', { type: 'range', min: '35', max: '400', value: '100', 'aria-label': 'PDF zoom' });
 
   function baseWidth() {
     return Math.max(240, body.clientWidth - 24);
@@ -102,8 +109,10 @@ export async function render(ctx) {
   async function paintPage(number) {
     if (rendered.has(number)) return;
     rendered.add(number);
+    const generation = paintGeneration;
     const slot = slots[number - 1];
     const page = await pdf.getPage(number);
+    if (generation !== paintGeneration) return;
     const unscaled = page.getViewport({ scale: 1, rotation });
     const ratio = (baseWidth() * scale) / unscaled.width;
     const outputScale = Math.min(window.devicePixelRatio || 1, 2);
@@ -122,6 +131,7 @@ export async function render(ctx) {
     const context = canvas.getContext('2d', { alpha: false });
     context.setTransform(outputScale, 0, 0, outputScale, 0, 0);
     await page.render({ canvasContext: context, viewport }).promise;
+    if (generation !== paintGeneration) return;
 
     if (doc.hasTextLayer !== false) {
       const layer = el('div', { class: 'textLayer' });
@@ -145,6 +155,59 @@ export async function render(ctx) {
     clear(slot);
   }
 
+  function setCurrentPage(number, save = true) {
+    const next = Math.min(Math.max(1, Number(number) || 1), pdf.numPages);
+    const changed = next !== currentPage || slider.value !== String(next);
+    currentPage = next;
+    slider.value = String(next);
+    ctx.setBottomText(`${next} / ${pdf.numPages}`);
+    if (save && changed) ctx.saveReading({ page: next });
+  }
+
+  function detectCurrentPage() {
+    scrollFrame = 0;
+    if (navigationLocked || !slots.length) return;
+    const root = body.getBoundingClientRect();
+    const center = (root.top + root.bottom) / 2;
+    let bestPage = currentPage;
+    let bestVisible = -1;
+    let bestDistance = Infinity;
+    slots.forEach((slot, index) => {
+      const rect = slot.getBoundingClientRect();
+      const visible = Math.max(0, Math.min(rect.bottom, root.bottom) - Math.max(rect.top, root.top));
+      const distance = Math.abs((rect.top + rect.bottom) / 2 - center);
+      if (visible > bestVisible || (visible === bestVisible && distance < bestDistance)) {
+        bestPage = index + 1;
+        bestVisible = visible;
+        bestDistance = distance;
+      }
+    });
+    if (bestVisible > 0) setCurrentPage(bestPage);
+  }
+
+  function schedulePageDetection() {
+    if (!scrollFrame) scrollFrame = requestAnimationFrame(detectCurrentPage);
+  }
+
+  function goToPage(number, save = true) {
+    const next = Math.min(Math.max(1, Number(number) || 1), pdf.numPages);
+    const slot = slots[next - 1];
+    if (!slot) return;
+    navigationLocked = true;
+    setCurrentPage(next, save);
+    paintPage(next).catch(() => {});
+    slot.scrollIntoView({ block: 'start', inline: 'start' });
+    if (navigationUnlockTimer) clearTimeout(navigationUnlockTimer);
+    navigationUnlockTimer = setTimeout(() => {
+      navigationLocked = false;
+      navigationUnlockTimer = 0;
+    }, 250);
+  }
+
+  slider.addEventListener('input', () => goToPage(Number(slider.value)));
+  zoomSlider.addEventListener('change', () => setScale(Number(zoomSlider.value) / 100).catch(() => {}));
+  body.addEventListener('scroll', schedulePageDetection, { passive: true, signal: gestures.signal });
+
   // Only the pages near the viewport are held as bitmaps; a 300-page scan would
   // otherwise exhaust memory on an iPhone.
   const observer = new IntersectionObserver((entries) => {
@@ -155,10 +218,7 @@ export async function render(ctx) {
         [number - 1, number + 1, number + 2].forEach((near) => {
           if (near >= 1 && near <= pdf.numPages) paintPage(near).catch(() => {});
         });
-        ctx.setBottomText(`${number} / ${pdf.numPages}`);
-        slider.value = String(number);
-        ctx.saveReading({ page: number });
-      } else if (Math.abs(number - Number(slider.value)) > 3) {
+      } else if (Math.abs(number - currentPage) > 3) {
         releasePage(number);
       }
     });
@@ -173,33 +233,28 @@ export async function render(ctx) {
     observer.observe(slot);
   }
 
-  const slider = el('input', { type: 'range', min: '1', max: String(pdf.numPages), value: '1', 'aria-label': 'Page' });
-  slider.addEventListener('input', () => goToPage(Number(slider.value)));
-
-  function goToPage(number) {
-    const slot = slots[Math.min(Math.max(1, number), pdf.numPages) - 1];
-    if (slot) slot.scrollIntoView({ block: 'start' });
-  }
-
   async function repaintAll() {
-    const currentPage = Math.max(1, Number(slider.value));
+    const pageToKeep = currentPage;
+    paintGeneration += 1;
     rendered.clear();
     slots.forEach((slot) => { clear(slot); slot.style.width = `${baseWidth() * scale}px`; });
-    await paintPage(currentPage);
-    requestAnimationFrame(() => goToPage(currentPage));
+    await paintPage(pageToKeep);
+    requestAnimationFrame(() => goToPage(pageToKeep, false));
   }
 
   async function setScale(next) {
     scale = Math.max(0.35, Math.min(4, Number(next) || 1));
+    zoomSlider.value = String(Math.round(scale * 100));
     await repaintAll();
   }
 
   async function fitPage() {
-    const page = await pdf.getPage(Math.max(1, Number(slider.value)));
+    const page = await pdf.getPage(currentPage);
     const viewport = page.getViewport({ scale: 1, rotation });
     const widthScale = baseWidth() / viewport.width;
     const heightScale = Math.max(120, body.clientHeight - 24) / viewport.height;
     scale = Math.max(0.35, Math.min(1, heightScale / widthScale));
+    zoomSlider.value = String(Math.round(scale * 100));
     await repaintAll();
   }
 
@@ -231,7 +286,8 @@ export async function render(ctx) {
   body.addEventListener('pointercancel', finishPinch, { signal: gestures.signal });
 
   const start = await ctx.readingState();
-  if (start && start.page > 1) setTimeout(() => goToPage(start.page), 60);
+  setCurrentPage(start && start.page ? start.page : 1, false);
+  if (start && start.page > 1) setTimeout(() => goToPage(start.page, false), 60);
 
   if (doc.hasTextLayer === false) {
     body.appendChild(el('div', { class: 'pv-note', text: 'No text layer — search and highlights are unavailable for this document.' }));
@@ -264,10 +320,12 @@ export async function render(ctx) {
       el('button', { type: 'button', text: 'Fit width', onclick: () => setScale(1).catch(() => {}) }),
       el('button', { type: 'button', text: 'Fit page', onclick: () => fitPage().catch(() => {}) }),
     ],
-    bottom: [slider],
+    bottom: [slider, zoomSlider],
     setScale,
     destroy() {
       gestures.abort();
+      if (scrollFrame) cancelAnimationFrame(scrollFrame);
+      if (navigationUnlockTimer) clearTimeout(navigationUnlockTimer);
       observer.disconnect();
       Promise.resolve(close()).catch(() => {});
     },

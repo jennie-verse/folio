@@ -8,7 +8,7 @@
    position, highlights and the extracted text stay, so a released document is
    still searchable and can be reconnected from the original file. */
 
-import { db, listDocuments, dropFile } from './store.js';
+import { db, listDocuments, releaseDocumentCopy } from './store.js';
 import { NEVER_RELEASED, isExpired, daysLeft, expiryBadge } from './expiry.js';
 import * as settings from './settings.js';
 
@@ -19,25 +19,7 @@ export const PIN_LIMIT = 50;
 async function releaseDocs(docs) {
   let released = 0;
   for (const doc of docs) {
-    const others = await db.documents.where('fileHash').equals(doc.fileHash || '').toArray();
-    const shared = others.some((row) => row.id !== doc.id && !row.deletedAt && row.pinned);
-    if (shared) continue;
-    await dropFile(doc.fileHash);
-    /* A package's assets go with its bytes, so the record says so. The flag is
-       set only when rows were actually deleted — a ZIP that held nothing but
-       its entry HTML has no assets to lose and must still open normally.
-       Reconnecting rebuilds the assets and clears the flag; until then the
-       viewer refuses to draw a page whose every internal link is dead. */
-    const assetsGone = doc.kind === 'html-package'
-      ? await db.packageAssets.where('docId').equals(doc.id).delete()
-      : 0;
-    await db.documents.put({
-      ...doc,
-      released: true,
-      ...(assetsGone > 0 ? { packageAssetsReleased: true } : {}),
-      updatedAt: Date.now(),
-    });
-    released += 1;
+    if (await releaseDocumentCopy(doc)) released += 1;
   }
   return released;
 }

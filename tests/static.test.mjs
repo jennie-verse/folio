@@ -266,6 +266,27 @@ test("path normalization rejects escapes, absolute paths and reserved keys", () 
   assert.equal(pkg.normalizePath("a/./b/../c.svg", "", false), "a/c.svg");
 });
 
+test("backup package manifests enforce the ZIP asset contract", () => {
+  const valid = pkg.validateManifest({
+    "assets/app.js": { mime: "text/javascript", encoding: "base64", data: "QQ==", bytes: 1 },
+  });
+  assert.deepEqual({ ...valid["assets/app.js"] }, {
+    mime: "text/javascript", encoding: "base64", data: "QQ==", bytes: 1,
+  });
+  assert.throws(() => pkg.validateManifest({ "app.js": { data: "QQ==" } }), /asset is invalid/);
+  assert.throws(() => pkg.validateManifest({
+    "app.js": { mime: "text/javascript", encoding: "base64", data: "QQ==", bytes: 2 },
+  }), /size mismatch/);
+  assert.throws(() => pkg.validateManifest({ "../app.js": { mime: "text/javascript", encoding: "base64", data: "QQ==", bytes: 1 } }), /escapes/);
+  assert.throws(() => pkg.validateManifest({
+    "App.js": { mime: "text/javascript", encoding: "base64", data: "QQ==", bytes: 1 },
+    "app.js": { mime: "text/javascript", encoding: "base64", data: "Qg==", bytes: 1 },
+  }), /case collision/);
+  assert.throws(() => pkg.validateManifest({
+    "app.js": { mime: "text/css", encoding: "base64", data: "QQ==", bytes: 1 },
+  }), /MIME mismatch/);
+});
+
 // analyze() walks a parsed document; the tests only need the ZIP layer, so a
 // minimal stand-in keeps importZip runnable outside a browser.
 globalThis.DOMParser = class { parseFromString() { return { querySelectorAll: () => [] }; } };
@@ -332,6 +353,8 @@ test("restore validates and materializes everything before one atomic replacemen
   assert.match(backup, /Duplicate or missing document id/);
   assert.match(backup, /Invalid document reference/);
   assert.match(backup, /new Blob\(\[bytes\]/, "Blob creation happens during normalization");
+  assert.match(backup, /const manifest = validateManifest\(entry\.packageAssets \|\| \{\}\)/,
+    "package backups must use the same path, MIME and size validation as ZIP import");
   assert.match(store, /replaceFromBackup[\s\S]*db\.transaction\('rw'/);
   assert.match(backup, /settings\.restorePortable/);
   assert.match(read("src/settings.js"), /normalizeBackupSettings/);
@@ -353,6 +376,9 @@ test("viewer listeners and delayed saves are tied to one document lifecycle", ()
   assert.match(appJs, /await flushViewerReading\(\)/);
   assert.match(appJs, /scrollRatio/);
   assert.match(appJs, /State\.pendingZoom/);
+  assert.match(appJs, /if \(State\.transient\) \{ State\.pendingZoom = null; return; \}/);
+  assert.match(appJs, /if \(State\.transient\) return;\n\s*await store\.putReadingState\(State\.current\.id/,
+    "synthetic package asset ids must not create reading-state rows");
 });
 
 test("quota retries only publish a successful reconnect after an atomic commit", () => {
@@ -400,6 +426,11 @@ test("PDF, image and CSV follow-up controls are present without eager CSV Find r
   assert.match(pdf, /Fit width/);
   assert.match(pdf, /Fit page/);
   assert.match(pdf, /pinchDistance/);
+  assert.match(pdf, /let currentPage = 1/);
+  assert.match(pdf, /detectCurrentPage/);
+  assert.doesNotMatch(pdf, /slider\.value = String\(number\)/,
+    "each IntersectionObserver entry must not overwrite the current page");
+  assert.match(pdf, /aria-label': 'PDF zoom'/);
   assert.match(image, /lastTap/);
   assert.match(image, /imgcanvas/);
   assert.match(csv, /Auto/);
@@ -409,10 +440,49 @@ test("PDF, image and CSV follow-up controls are present without eager CSV Find r
   assert.match(csv, /scrollLeft/);
 });
 
+test("CSV Find yields between chunks and can cancel stale work", async () => {
+  const { findRowsChunked } = await import("../src/handlers/csv.js");
+  const rows = Array.from({ length: 320 }, (_, index) => [`row ${index}`, index === 257 ? "needle" : ""]);
+  let yields = 0;
+  let tick = 0;
+  const hits = await findRowsChunked(rows, "needle", {
+    budgetMs: 1,
+    now: () => ++tick,
+    yieldControl: async () => { yields += 1; },
+  });
+  assert.deepEqual(hits, [257]);
+  assert.ok(yields >= 2, "large searches must yield control repeatedly");
+
+  let cancelled = false;
+  const result = await findRowsChunked(rows, "row", {
+    budgetMs: 0,
+    now: () => 1,
+    yieldControl: async () => { cancelled = true; },
+    isCancelled: () => cancelled,
+  });
+  assert.equal(result, null);
+});
+
+test("CSV Find keeps the event loop responsive across 100,000 rows", async () => {
+  const { findRowsChunked } = await import("../src/handlers/csv.js");
+  const rows = Array.from({ length: 100000 }, (_, index) => [`row ${index}`, index === 99999 ? "last needle" : ""]);
+  let heartbeat = false;
+  setTimeout(() => { heartbeat = true; }, 0);
+  const hits = await findRowsChunked(rows, "needle", {
+    budgetMs: 0,
+    now: () => 1,
+    yieldControl: () => new Promise((resolve) => setImmediate(resolve)),
+  });
+  assert.equal(heartbeat, true, "a timer must run before the search finishes");
+  assert.deepEqual(hits, [99999]);
+});
+
 test("releasing a package records that its assets went with the bytes", () => {
-  const retention = read("src/retention.js");
-  assert.match(retention, /doc\.kind === 'html-package'/);
-  assert.match(retention, /packageAssetsReleased: true/);
+  const store = read("src/store.js");
+  assert.match(store, /current\.kind === 'html-package'/);
+  assert.match(store, /packageAssetsReleased: true/);
+  assert.match(store, /releaseDocumentCopy[\s\S]*db\.transaction\('rw', db\.documents, db\.documentFiles, db\.packageAssets/);
+  assert.match(read("src/retention.js"), /await releaseDocumentCopy\(doc\)/);
 });
 
 test("a package that LOST its assets refuses to render", async () => {
@@ -449,9 +519,9 @@ test("a package that LOST its assets refuses to render", async () => {
 });
 
 test("releasing flags only packages that actually had assets", () => {
-  const retention = read("src/retention.js");
-  assert.match(retention, /await db\.packageAssets\.where\('docId'\)\.equals\(doc\.id\)\.delete\(\)/);
-  assert.match(retention, /assetsGone > 0 \? \{ packageAssetsReleased: true \}/,
+  const store = read("src/store.js");
+  assert.match(store, /await db\.packageAssets\.where\('docId'\)\.equals\(current\.id\)\.delete\(\)/);
+  assert.match(store, /assetsGone > 0 \? \{ packageAssetsReleased: true \}/,
     "a package with nothing to delete must not be flagged");
 });
 

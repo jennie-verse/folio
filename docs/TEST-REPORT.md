@@ -1153,3 +1153,52 @@ HEIC/EXIF, 100페이지 이상 PDF 메모리, 첫 오프라인 한글 CID PDF, �
 장기 미사용 뒤 IndexedDB 유지, 실제 sample ZIP 내부 링크는 실기기 또는 실제
 fixture가 없어 미검증입니다. PDF/이미지의 실제 두 손가락 gesture도 자동화
 환경이 multi-touch를 제공하지 않아 버튼/슬라이더 대안과 코드 연결만 검사했습니다.
+
+---
+
+## 16. 2026-08-13 최종 재검토 (`2026.08.13-audit3`)
+
+15장의 완료 판정을 다시 재현 검토한 결과 남아 있던 다섯 항목을 수정했습니다.
+검증은 사용자 데이터가 있을 수 있는 4173 origin 대신
+`http://127.0.0.1:4191/Published/folio/`의 격리 IndexedDB에서 수행했습니다.
+
+### 16-1. 최종 수정
+
+| 항목 | 수정·검증 결과 |
+|---|---|
+| PDF 페이지 유지 | `IntersectionObserver`가 교차한 모든 페이지로 현재 페이지를 덮어쓰지 않게 하고, 실제 viewport에서 보이는 페이지를 별도로 계산. 프로그램 이동·Fit·회전·재렌더 중 observer 갱신을 잠시 억제 |
+| PDF 확대 | CSS의 `max-width:100%` 제한을 제거하고 35~400% 단일 포인터 slider를 추가. 200%에서 canvas 732px, viewport 390px, `scrollWidth` 752px로 실제 가로 pan 확인 |
+| package backup | ZIP 반입과 같은 `validateManifest()`를 Restore 전에 실행. 정규화 path, base64 encoding, MIME/확장자, 대소문자 충돌, 개수, 단일/전체 크기, `bytes`, `packageFileCount`를 검증 |
+| package release | 원본 Blob·packageAssets·`released` metadata를 세 table의 단일 Dexie transaction으로 이동. 공유 hash가 있으면 release하지 않음 |
+| transient zoom | 패키지 내부 합성 문서는 zoom을 메모리에만 적용하고 reading-state를 쓰지 않음. flush/close에서 pending zoom을 항상 폐기 |
+| CSV Find | 동기식 전체 `reduce()`를 취소 가능한 8ms chunk 검색으로 교체. Find sheet가 동기/비동기 finder를 모두 기다리도록 변경 |
+
+### 16-2. 자동 검사
+
+- `npm test`: **49/49 통과**.
+- `npm run test:syntax`: 통과.
+- `git diff --check`: 통과.
+- package manifest 실행 검사: 누락 필드, size 불일치, path escape, case
+  collision, MIME mismatch 거부.
+- CSV 100,000행 검색 실행 검사: 마지막 행 hit 확인, 검색 완료 전에 timer가
+  실행되어 이벤트 루프가 응답하는지 확인.
+
+### 16-3. Browser·IndexedDB 실행 검증
+
+- 390×844에서 3페이지 PDF의 slider를 2로 이동한 뒤 Fit page와 Rotate를
+  차례로 실행해도 page `2`, `scrollTop 493` 유지.
+- PDF zoom slider 200%에서 page `2` 유지, canvas 폭 732px와 실제 가로
+  overflow 362px 확인.
+- MIME·encoding·bytes가 없는 package asset backup을 Replace까지 진행했을 때
+  `Restore failed — your existing library was not changed.` 표시, 기존 PDF 보존.
+- release transaction에서 Blob과 packageAssets 삭제 뒤 metadata 직전에 오류를
+  주입했을 때 transaction 거부와 document·Blob·asset 3개 보존을 확인.
+- package 내부 `notes.txt`에서 Text size 19를 선택하고 부모 package로 돌아온 뒤
+  IndexedDB의 합성 `parent#path` reading-state가 0개임을 확인.
+
+### 16-4. 남은 실기기 확인
+
+실제 iPhone/iPad Safari·홈 화면 모드, OS 네이티브 picker 취소/복귀, 실제
+multi-touch pinch, HEIC/EXIF, 100페이지 이상 PDF 메모리, 첫 오프라인 한글 CID
+PDF, 한국어 IME, 장기 미사용 뒤 IndexedDB 유지, 현재 작업공간에 없는 실제
+sample ZIP 3건은 여전히 실기기/fixture가 필요하므로 통과로 세지 않습니다.

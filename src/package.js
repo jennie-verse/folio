@@ -31,7 +31,6 @@ const PackageApi = Object.create(null);
     ico:'image/x-icon',woff:'font/woff',woff2:'font/woff2',ttf:'font/ttf',otf:'font/otf',mp3:'audio/mpeg',wav:'audio/wav',
     mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',xml:'application/xml'
   };
-  var ACTIVE_MIME = /^(?:text\/(?:html|css|javascript)|image\/svg\+xml|application\/(?:javascript|xml))/i;
 
   function fail(message, code) { var e = new Error(message); e.code = code || 'PACKAGE_ERROR'; throw e; }
   function utf8Bytes(value) { return textEncoder.encode(String(value || '')).byteLength; }
@@ -306,7 +305,7 @@ const PackageApi = Object.create(null);
   function validateManifest(raw) {
     if(!raw||typeof raw!=='object'||Array.isArray(raw))fail('Backup package manifest is invalid.','INVALID_MANIFEST');
     var out=Object.create(null),total=0,folded=Object.create(null),keys=Object.keys(raw);if(keys.length>LIMITS.entryCount)fail('Backup package has too many assets.','INVALID_MANIFEST');
-    keys.forEach(function(path){var safe=normalizePath(path,'',false);if(safe!==path)fail('Backup package path is not normalized: '+path,'INVALID_MANIFEST');var low=safe.toLocaleLowerCase('en-US');if(folded[low])fail('Backup package contains a case collision.','INVALID_MANIFEST');folded[low]=1;var a=raw[path];if(!a||typeof a!=='object'||a.encoding!=='base64'||typeof a.data!=='string'||typeof a.mime!=='string')fail('Backup package asset is invalid: '+path,'INVALID_MANIFEST');var bytes;try{bytes=fromBase64(a.data)}catch(_){fail('Backup package asset is not valid base64: '+path,'INVALID_MANIFEST')}if(bytes.length>LIMITS.singleEntryBytes)fail('Backup package asset is too large: '+path,'INVALID_MANIFEST');total+=bytes.length;if(total>LIMITS.totalUncompressedBytes)fail('Backup package is too large.','INVALID_MANIFEST');var mime=mimeFor(path);if(ACTIVE_MIME.test(a.mime)&&a.mime!==mime)fail('Backup package active MIME mismatch: '+path,'INVALID_MANIFEST');out[path]={mime:mime,encoding:'base64',data:a.data,bytes:bytes.length}});return out
+    keys.forEach(function(path){var safe=normalizePath(path,'',false);if(safe!==path)fail('Backup package path is not normalized: '+path,'INVALID_MANIFEST');var low=safe.toLocaleLowerCase('en-US');if(folded[low])fail('Backup package contains a case collision.','INVALID_MANIFEST');folded[low]=1;var a=raw[path];if(!a||typeof a!=='object'||a.encoding!=='base64'||typeof a.data!=='string'||typeof a.mime!=='string')fail('Backup package asset is invalid: '+path,'INVALID_MANIFEST');var bytes;try{bytes=fromBase64(a.data)}catch(_){fail('Backup package asset is not valid base64: '+path,'INVALID_MANIFEST')}if(!Number.isSafeInteger(a.bytes)||a.bytes!==bytes.length)fail('Backup package asset size mismatch: '+path,'INVALID_MANIFEST');if(bytes.length>LIMITS.singleEntryBytes)fail('Backup package asset is too large: '+path,'INVALID_MANIFEST');total+=bytes.length;if(total>LIMITS.totalUncompressedBytes)fail('Backup package is too large.','INVALID_MANIFEST');var mime=mimeFor(path);if(a.mime!==mime)fail('Backup package MIME mismatch: '+path,'INVALID_MANIFEST');out[path]={mime:mime,encoding:'base64',data:a.data,bytes:bytes.length}});return out
   }
   /* Choose the document to open.
 

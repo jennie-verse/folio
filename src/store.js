@@ -149,6 +149,35 @@ export async function dropFile(fileHash) {
   if (fileHash) await db.documentFiles.delete(fileHash);
 }
 
+/** Release one local copy and its package assets as a single state change.
+    A shared file is left alone: deleting its bytes would silently disconnect
+    the other document. `beforeMetadata` is a narrow failure-injection seam
+    used by the transaction rollback regression test. */
+export async function releaseDocumentCopy(doc, { beforeMetadata } = {}) {
+  if (!doc || !doc.id) return false;
+  return db.transaction('rw', db.documents, db.documentFiles, db.packageAssets, async () => {
+    const current = await db.documents.get(doc.id);
+    if (!current || current.deletedAt || current.pinned || current.released) return false;
+    const sameFile = current.fileHash
+      ? await db.documents.where('fileHash').equals(current.fileHash).toArray()
+      : [];
+    if (sameFile.some((row) => row.id !== current.id && !row.deletedAt)) return false;
+
+    if (current.fileHash) await db.documentFiles.delete(current.fileHash);
+    const assetsGone = current.kind === 'html-package'
+      ? await db.packageAssets.where('docId').equals(current.id).delete()
+      : 0;
+    if (beforeMetadata) await beforeMetadata();
+    await db.documents.put({
+      ...current,
+      released: true,
+      ...(assetsGone > 0 ? { packageAssetsReleased: true } : {}),
+      updatedAt: Date.now(),
+    });
+    return true;
+  });
+}
+
 export async function putReadingState(docId, patch) {
   const previous = (await db.readingStates.get(docId)) || { docId };
   const next = { ...previous, ...patch, docId, lastReadAt: Date.now() };
