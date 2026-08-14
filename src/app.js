@@ -43,17 +43,44 @@ const State = {
   viewerAbort: null,
   scrollSaveTimer: null,
   pendingZoom: null,
+  libraryCollapsed: false,
 };
 
 /* ── routing ───────────────────────────────────────────────────────────── */
+
+const SPLIT_VIEW_QUERY = '(min-width:1024px) and (orientation:landscape)';
+
+function paintLibraryToggle(split) {
+  const button = $('#btnLibraryToggle');
+  const collapsed = split && State.libraryCollapsed;
+  const label = collapsed ? 'Show library' : 'Hide library';
+  button.classList.toggle('hidden', !split);
+  button.textContent = collapsed ? '›' : '‹';
+  button.setAttribute('aria-label', label);
+  button.setAttribute('title', label);
+  button.setAttribute('aria-expanded', String(!collapsed));
+}
 
 function show(name) {
   ['library', 'viewer', 'settings'].forEach((screen) => {
     $(`#${screen}`).classList.toggle('hidden', screen !== name);
   });
-  // iPad landscape keeps the library rail beside the viewer.
-  $('#app').classList.toggle('split', name === 'viewer' && window.matchMedia('(min-width:1024px) and (orientation:landscape)').matches);
-  if (name === 'viewer') $('#library').classList.toggle('hidden', !$('#app').classList.contains('split'));
+  // iPad landscape keeps the library rail beside the viewer unless the user
+  // explicitly collapses it. The choice survives document and size changes
+  // for the current app session.
+  const split = name === 'viewer' && window.matchMedia(SPLIT_VIEW_QUERY).matches;
+  const collapsed = split && State.libraryCollapsed;
+  $('#app').classList.toggle('split', split);
+  $('#app').classList.toggle('library-collapsed', collapsed);
+  if (name === 'viewer') $('#library').classList.toggle('hidden', !split || collapsed);
+  paintLibraryToggle(split);
+}
+
+function toggleLibraryRail() {
+  if (!$('#app').classList.contains('split')) return;
+  State.libraryCollapsed = !State.libraryCollapsed;
+  show('viewer');
+  $('#btnLibraryToggle').focus();
 }
 
 /* ── library ───────────────────────────────────────────────────────────── */
@@ -1027,6 +1054,7 @@ function wire() {
   $('#btnSettingsBack').addEventListener('click', () => { show('library'); refreshLibrary(); });
 
   $('#btnBack').addEventListener('click', () => { leaveViewer(); });
+  $('#btnLibraryToggle').addEventListener('click', toggleLibraryRail);
   $('#viewerTitle').addEventListener('click', openDocumentSheet);
 
   $$('#segTextSize button').forEach((button) => {

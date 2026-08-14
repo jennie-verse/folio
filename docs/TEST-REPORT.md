@@ -1202,3 +1202,31 @@ fixture가 없어 미검증입니다. PDF/이미지의 실제 두 손가락 gest
 multi-touch pinch, HEIC/EXIF, 100페이지 이상 PDF 메모리, 첫 오프라인 한글 CID
 PDF, 한국어 IME, 장기 미사용 뒤 IndexedDB 유지, 현재 작업공간에 없는 실제
 sample ZIP 3건은 여전히 실기기/fixture가 필요하므로 통과로 세지 않습니다.
+
+---
+
+## 17. 2026-08-14 가로 화면 Library rail (`2026.08.14-rail1`)
+
+1024px 이상 가로 화면에서 문서를 열면 320px Library rail이 항상 고정되어
+문서를 전체 너비로 볼 수 없던 문제를 수정했습니다.
+
+### 17-1. 수정
+
+- Viewer 상단에 가로 분할 화면 전용 Library 접기/펼치기 버튼 추가.
+- 접으면 Library를 숨기고 Viewer가 전체 화면 너비를 사용.
+- 버튼의 `aria-controls`, `aria-expanded`, 동적 accessible name과 44×44px
+  터치 영역 적용.
+- 문서를 닫았다 다시 열거나 세로·가로 전환 후에도 현재 앱 세션의 사용자
+  선택 유지.
+- 모바일·세로 화면에서는 토글을 숨기고 기존 단일 Viewer 동작 유지.
+
+### 17-2. 검사
+
+- `npm test`: **50/50 통과**.
+- `npm run test:syntax`: 통과.
+- `git diff --check`: 통과.
+- 1180×820 펼침: Library 320px, Viewer 860px, `aria-expanded="true"`.
+- 1180×820 접기: Library 0px, Viewer 1180px, `aria-expanded="false"`.
+- Back 후 같은 문서 재열기와 820×1180 → 1180×820 회전 뒤 접힘 유지.
+- 다시 펼치면 Library 320px, Viewer 860px로 복원.
+- 버튼 실제 크기 44×44px, Browser console warning/error 0건.

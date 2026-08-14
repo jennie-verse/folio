@@ -26,6 +26,7 @@ const appJs = read("src/app.js");
 const previewJs = read("src/preview.js");
 const retentionJs = read("src/retention.js");
 const syncJs = read("src/sync.js");
+const appCss = read("assets/app.css");
 
 const APP_SOURCES = ["index.html", "sw.js", "preview-host.html"]
   .concat(readdirSync(join(root, "src")).filter((n) => n.endsWith(".js")).map((n) => `src/${n}`))
@@ -90,6 +91,18 @@ test("the shared sync module is an optional cache entry, never in addAll", () =>
   assert.match(sw, /const OPTIONAL = \['\.\.\/shared\/v1\/sync\.js'\]/);
   const assetsBlock = /const ASSETS = \[([\s\S]*?)\n\];/.exec(sw)[1];
   assert.doesNotMatch(assetsBlock, /shared\/v1/, "a missing shared module must not fail the install");
+});
+
+test("the landscape library rail has an accessible persistent toggle", () => {
+  assert.match(index, /id="btnLibraryToggle"/);
+  assert.match(index, /aria-controls="library"/);
+  assert.match(index, /aria-expanded="true"/);
+  assert.match(appJs, /libraryCollapsed: false/);
+  assert.match(appJs, /State\.libraryCollapsed = !State\.libraryCollapsed/);
+  assert.match(appJs, /button\.setAttribute\('aria-expanded', String\(!collapsed\)\)/);
+  assert.match(appJs, /window\.matchMedia\(SPLIT_VIEW_QUERY\)/);
+  assert.match(appCss, /#app\.split\.library-collapsed #library\{display:none\}/);
+  assert.match(appCss, /#app\.split\.library-collapsed #viewer\{flex:1 1 100%\}/);
 });
 
 /* preview-host.html is a versioned shell file paired one-to-one with

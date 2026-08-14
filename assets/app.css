@@ -326,6 +326,8 @@ html[data-theme="dark"] .toast button{color:var(--rose)}
   #app.split #library{flex:0 0 320px;border-right:1px solid var(--line)}
   #app.split #viewer{flex:1;min-width:0}
   #app.split #library,#app.split #viewer{display:flex}
+  #app.split.library-collapsed #library{display:none}
+  #app.split.library-collapsed #viewer{flex:1 1 100%}
   #app.split .scroll > .doclist,#app.split .continue{max-width:none}
 }
 
