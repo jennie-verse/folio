@@ -42,11 +42,12 @@ npm run test:syntax
 ## Local preview
 
 ```bash
+cd WebApp/Published/folio
 python3 -m http.server 4173
 ```
 
-Then open `http://127.0.0.1:4173/Deliverable/folio/` — the subpath matters,
-because every asset reference is relative.
+Then open `http://127.0.0.1:4173/`. Every asset reference remains relative, so
+the same files also work under the GitHub Pages `/folio/` subpath.
 
 ## Third-party code
 

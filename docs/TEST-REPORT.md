@@ -1,5 +1,10 @@
 # folio — 자체 검토 결과
 
+> **2026-08-13 감사 수정 메모:** 아래 1~14장은 당시 빌드별 역사 기록입니다. 현재
+> 검증 결과와 감사 수정 범위는 15장이 기준입니다. 특히 실제 `WebApp/sample/`
+> ZIP은 현재 작업공간에 없으므로 합성 fixture 통과와 실제 sample 검증을 구분하며,
+> 누락된 실제 fixture를 통과로 집계하지 않습니다.
+
 빌드 `2026.08.12-init1` · 검토일 2026-08-12 · 검토자 Claude Code (자체 검토)
 
 기준 문서: `webapp-standard.md` 10장 · 계획서 12장 ·
@@ -22,7 +27,7 @@
 |---|---|---|
 | 1 | 절대 경로 (`src="/` `href="/` `from "/`) | 0건 |
 | 2 | 외부 요청 (`api.github.com` 제외) | 0건 |
-| 3 | 동일 출처 샌드박스 토큰 — **전체 트리** | 0건 |
+| 3 | 동일 출처 샌드박스 토큰 — 배포 앱 소스 allowlist | 0건 (보고서·문서는 설명을 위해 해당 문자열을 포함하므로 전체 트리 주장이 아님) |
 | 4 | 위험 패턴 (`innerHTML =` `eval(` `unsafe-*`) | **1건 — 아래 3-1 참조** |
 | 5 | `index.html` 의 `style="` 속성 | 0건 |
 | 6 | 배포 제외 대상 (`*.map` `pdf.sandbox.*` `quickjs-eval.*`) | 0건 |
@@ -38,7 +43,7 @@
 | 2 | `onload` 가 든 SVG가 **이미지 뷰어에서 실행되지 않음** | 통과 | `<img src="blob:">` 로 200×120 정상 표시, `onload`·내부 `<script>` 둘 다 실행 안 됨, 인라인 `<svg>` 0개 |
 | 3 | Run 문서에서 **외부 요청이 나가지 않음** | 통과 (구조·페이로드 확인) | 호스트 CSP `connect-src 'none'`, 원격 스크립트는 `application/x-folio-remote-blocked` 로 무력화. **실행 자체는 3-2의 환경 제약으로 Pending** |
 | 4 | **로컬에 없는 문서를 삭제로 추론하지 않음** | 통과 | 아래 1-3 |
-| 5 | **샘플 ZIP 2건 반입** | 통과 | `mindmap.zip`(1.4 MB, 루트 `index.html`) · `mindmap-.zip`(10.5 MB, 진입점 `mindmap-5/index.html`) 둘 다 반입. 자산 35개 해석, materialize 경고 0건 |
+| 5 | **샘플 ZIP 2건 반입** | 당시 통과 기록 · 현재 미검증 | 당시 실측 내용은 우측과 같으나 현재 작업공간에는 실제 sample ZIP이 없음. 현재 자동 검사는 합성 ZIP fixture만 사용 |
 
 ### 1-3. 삭제 추론 금지 — 실측 (계획서 5-4 하드 룰)
 
@@ -429,7 +434,7 @@ folio 실기기 확인 후 사용자 지시가 있을 때만).
 
 | 3-1 기계 검사 | 결과 |
 |---|---|
-| 동일 출처 샌드박스 토큰 (전체 트리) | 0건 |
+| 동일 출처 샌드박스 토큰 (배포 앱 소스 allowlist) | 0건 |
 | `npm test` | **32/32 통과** (기존 27 + 신규 5) |
 | `npm run test:syntax` | 통과 |
 | 기존 검사 7종 | 전부 유지 |
@@ -915,7 +920,7 @@ folio의 결함이 아니라 **샘플 ZIP의 문제**입니다.
 |---|---|
 | `npm test` | **37/37** (12-5 이후 1건 추가) |
 | `npm run test:syntax` | 통과 |
-| `grep -arn 'allow-same-origin' .` | **0건** |
+| 배포 앱 소스 allowlist의 동일 출처 샌드박스 토큰 검사 | **0건** (문서 포함 전체 트리 grep 주장은 철회) |
 | 앱 셸 CSP · `preview-host.html` CSP · 이중 프레임 | 변경 없음 |
 | 샌드박스에 Blob·blob: URL 전달 | 없음 (앱 쪽에서만 생성) |
 | `VERSION` ↔ `APP_BUILD` | 둘 다 `2026.08.12-pkglink5` |
@@ -1071,7 +1076,7 @@ Safari)에는 해당되지 않습니다** — 실제 서비스 워커는 버전�
 | `npm test` | **37/37** |
 | `npm run test:syntax` | 통과 |
 | `tests/package-map.test.html` (브라우저) | **14/14 통과** (1건 skip — 파일명 관례) |
-| `grep -arn 'allow-same-origin' .` | 0건 |
+| 배포 앱 소스 allowlist의 동일 출처 샌드박스 토큰 검사 | 0건 |
 | 세 샘플 ZIP, 실제 `instrument()`/`shim()` 로 앵커 전부 클릭 | 91/91 정상 이벤트 |
 | 중복 반입 재연결 후 `packageAssets` 복원 | mindmap 25개·mindmap- 35개, 스토어에서 직접 확인 |
 | `VERSION` ↔ `APP_BUILD` | 둘 다 `2026.08.12-pkglink6` |
@@ -1079,3 +1084,72 @@ Safari)에는 해당되지 않습니다** — 실제 서비스 워커는 버전�
 실기기(iPhone) 재확인이 여전히 필요합니다 — 이번에도 실제 앱 화면 안에서의
 클릭 자체는 이 환경의 두 가지 제약(샌드박스 iframe 차단, srcdoc에 상속되는
 앱 셸 CSP) 때문에 확인하지 못했습니다.
+
+---
+
+## 15. 2026-08-13 감사 수정 (`2026.08.13-audit2`)
+
+이 장은 1~14장의 역사 기록을 대체하는 현재 결과입니다. 검증은 사용자 문서가
+있을 수 있는 4173 origin을 사용하지 않고, 별도 서버
+`http://127.0.0.1:4187/Published/folio/`와 격리된 IndexedDB에서 수행했습니다.
+
+### 15-1. 수정 범위
+
+| 감사 ID | 현재 결과 |
+|---|---|
+| A-01 | 백업 전체를 검증·base64 디코딩·Blob 변환한 뒤 7개 portable Dexie 테이블을 단일 transaction으로 교체. 설정은 허용 목록과 값 검증을 통과한 항목만 복원하며 sync/device/cleanup 값은 제외 |
+| A-02 | 일반 반입·백업 복원·재연결 input 분리. `cancel`과 Safari focus/visibility 복귀 fallback이 재연결 Promise를 한 번만 해결 |
+| A-03 | 뷰어 listener와 지연 저장을 문서별 AbortController/disposer에 귀속. Back/전환 전에 flush하고 pinch 중에는 DB를 쓰지 않음 |
+| A-04 | TXT/Markdown ratio 복원, CSV row/offset/scrollTop/scrollLeft 복원 및 가상 범위 선렌더 |
+| A-05 | quota 재시도 결과를 모든 반입·재연결 호출자가 검사. 파일·packageAssets·메타데이터는 transaction으로 commit하고 현재 hash는 release 후보에서 제외 |
+| A-06 | Markdown/HTML Read의 요청 가능 속성과 요소를 detached DOM에서 제거한 뒤 live DOM/iframe에 연결 |
+| B-01~B-04 | 문서 글자 단계 분리, dark selector root 제한, 44px 터치 영역, overlay dismiss·포커스 트랩·초점 복귀 구현 |
+| B-05 | 테스트 이름/검사 범위, 전체-tree grep 주장, 로컬 실행 경로, 실제 fixture 누락 표시 정정 |
+| C-01 | PDF Fit width/Fit page/pinch 연결/페이지 유지, 이미지 pinch·double-tap·실제 overflow pan과 단일 포인터 대안 |
+| C-02 | CSV 위치·가로 shadow·3개 열 폭·400행 가상 창 Find |
+| C-03 | Desk 목록과 Continue 유지. 카드/Shelf/thumbnail/폴더는 현재 범위에서 제외하고 외부 계획서의 후속 backlog로 명시 |
+
+### 15-2. 자동 검사
+
+- `npm test`: **46/46 통과**. QuotaExceededError 1회 뒤 성공과 2회 모두
+  실패를 실제 비동기 재시도 함수로 검사합니다.
+- `npm run test:syntax`: 통과.
+- `git diff --check`: 통과.
+- 패키지 DOM harness: 합성 fixture **9건 통과**, 실제 sample ZIP **3건
+  UNVERIFIED**. 누락 fixture는 성공 또는 실패 수에 포함하지 않습니다.
+- 현재 작업공간에는 `WebApp/sample/*.zip` 실제 sample이 없습니다. 자동으로
+  생성한 hostile/synthetic ZIP과 실제 sample 검증은 별개입니다.
+
+### 15-3. Browser 검증
+
+- 390×844와 desktop에서 Library, Settings, System/Light/Dark, 6px/17px,
+  실제 44×44px 최소 터치 영역과 가로 overflow 없음 확인.
+- TXT `scrollTop 1250`, Markdown `scrollTop 1800`, CSV `scrollTop 2800` /
+  `scrollLeft 650`을 빠른 Back 뒤 재열어 같은 값으로 복원.
+- 문서를 10회 전환한 뒤 본문 tap 한 번이 bars 상태를 한 번만 변경.
+- 문서 글자 6·8·10·12·15·19px를 각각 저장하고 재열어 모두 같은 값 복원.
+- CSV Compact, 좌우 shadow, 1,999행 Find에서 전체 DOM 대신 135행만 렌더.
+- 손상 base64·future schema·잘못된 참조 복원은 기존 1개 문서를 보존했고,
+  정상 백업은 1개 문서를 복원. 허용된 6px/dark 설정만 반영.
+- Reconnect에서 같은 파일, 다른 파일의 Add as new/Link anyway, 대화상자
+  취소를 확인. OS 네이티브 파일 선택기 취소는 자동화하지 못함.
+- Markdown과 HTML Read에서 문서 리소스 요청 0건, HTML Read script 미실행,
+  HTML Run은 확인 전 미실행·확인 뒤 실행을 확인.
+- 3페이지 PDF에서 Fit width/Fit page와 회전 뒤 2페이지 유지 확인. 이미지
+  200% 확대 시 실제 scroll overflow와 Fit 복귀 확인.
+- console warning/error와 framework error overlay 없음.
+
+### 15-4. 보안 불변 조건
+
+앱 셸 CSP의 inline script 허용 없음, 일반 eval 허용 없음, iframe에 동일 출처
+sandbox 권한 없음, Read script 실행 없음, Run 기본 비활성, 문서 본문/PDF/이미지
+sync 없음, PDF.js script sandbox 자산 없음, release와 delete 상태 분리를 다시
+검사했습니다. 기존 정책을 완화한 변경은 없습니다.
+
+### 15-5. 미검증
+
+실제 iPhone/iPad Safari·홈 화면 모드, 네이티브 파일 선택기 취소/복귀,
+HEIC/EXIF, 100페이지 이상 PDF 메모리, 첫 오프라인 한글 CID PDF, 한국어 IME,
+장기 미사용 뒤 IndexedDB 유지, 실제 sample ZIP 내부 링크는 실기기 또는 실제
+fixture가 없어 미검증입니다. PDF/이미지의 실제 두 손가락 gesture도 자동화
+환경이 multi-touch를 제공하지 않아 버튼/슬라이더 대안과 코드 연결만 검사했습니다.
