@@ -8,7 +8,7 @@
 // PDF.js is about 5 MB. Precaching it would make the very first install slow
 // for someone who may never open a PDF, so it is fetched on demand and then
 // kept.
-const VERSION = '2026.08.14-rail1';   // must match APP_BUILD in src/version.js
+const VERSION = '2026.08.17-journal1';   // must match APP_BUILD in src/version.js
 
 const SHELL  = `folio-shell-${VERSION}`;
 const PDFJS  = `folio-pdfjs-${VERSION}`;
@@ -52,6 +52,8 @@ const ASSETS = [
   './src/preview.js',
   './src/sync.js',
   './src/sync-runner.js',
+  './src/journal.js',
+  './src/journal-record.js',
   './src/handlers/encoding.js',
   './src/handlers/text.js',
   './src/handlers/markdown.js',
@@ -91,7 +93,7 @@ const ASSETS = [
 // module lives in another repository on the same origin, and folio must
 // install and run even if it is briefly unavailable. Putting it in addAll()
 // would make one missing file break the whole Service Worker install.
-const OPTIONAL = ['../shared/v1/sync.js'];
+const OPTIONAL = ['../shared/v1/sync.js', '../shared/v2/journal.js'];
 
 /* cache.addAll() calls plain fetch() under the hood, which is free to answer
    from the browser's own HTTP cache. GitHub Pages sends a Cache-Control on

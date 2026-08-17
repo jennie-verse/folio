@@ -11,6 +11,7 @@ import * as backup from './backup.js';
 import * as relink from './relink.js';
 import * as sync from './sync.js';
 import * as syncRunner from './sync-runner.js';
+import * as journal from './journal.js';
 import * as pkg from './package.js';
 import { TAG_OF, KINDS, detect } from './detect.js';
 import { APP_BUILD } from './version.js';
@@ -44,6 +45,7 @@ const State = {
   scrollSaveTimer: null,
   pendingZoom: null,
   libraryCollapsed: false,
+  journalReadMarked: false,
 };
 
 /* ── routing ───────────────────────────────────────────────────────────── */
@@ -199,6 +201,7 @@ function pickOneFile() {
 
 async function handleImport(files) {
   if (!files || !files.length) return;
+  const beforeIds = new Set((await store.listDocuments()).map((doc) => doc.id));
   const result = await library.importFiles(Array.from(files), HANDLERS);
   if (result.failures.length) {
     customSheet((panel) => {
@@ -207,6 +210,9 @@ async function handleImport(files) {
     });
   }
   await refreshLibrary();
+  for (const doc of State.docs) {
+    if (!beforeIds.has(doc.id)) journal.recordActivity(doc, 'added', { at: Number(doc.addedAt) }).catch(() => {});
+  }
   syncRunner.schedulePush();
 }
 
@@ -281,6 +287,7 @@ async function editTags(doc) {
 async function exportOriginal(doc) {
   const file = await store.getFile(doc.fileHash);
   if (!file || !file.blob) { toast('This document has no local copy.'); return; }
+  journal.recordActivity(doc, 'export-requested').catch(() => {});
   const name = doc.fileName || `${doc.title}.bin`;
   const wrapped = new File([file.blob], name);
   if (navigator.canShare && navigator.canShare({ files: [wrapped] }) && navigator.share) {
@@ -378,13 +385,13 @@ async function reconnectDocument(fresh) {
   return result === 'linked';
 }
 
-async function openDocument(doc) {
+async function openDocument(doc, { journalOpened = true } = {}) {
   const fresh = await store.getDocument(doc.id);
   if (!fresh) { await refreshLibrary(); return; }
 
   if (fresh.released) {
     if (!await reconnectDocument(fresh)) return;
-    return openDocument(fresh);
+    return openDocument(fresh, { journalOpened });
   }
 
   const file = await store.getFile(fresh.fileHash);
@@ -397,6 +404,7 @@ async function openDocument(doc) {
 
   State.assetReturn = null;
   await showInViewer(fresh, file.blob);
+  if (journalOpened) journal.recordActivity(fresh, 'opened').catch(() => {});
   await refreshLibrary();
 }
 
@@ -405,6 +413,7 @@ async function showInViewer(record, blob, { transient = false } = {}) {
   await closeViewer();
   State.current = record;
   State.transient = transient;
+  State.journalReadMarked = false;
   bottomText = '';
   if (!transient) await store.touch(record.id);
 
@@ -482,14 +491,18 @@ function buildContext(doc, blob, body, transient = false) {
       return next;
     },
     readingState: () => (transient ? Promise.resolve({}) : store.getReadingState(doc.id)),
-    saveReading: (patch) => {
+    saveReading: async (patch) => {
       if (transient) return Promise.resolve({});
       const merged = { ...patch };
       if (patch.scrollY !== undefined && body.scrollHeight > body.clientHeight) {
         merged.progress = Math.min(1, patch.scrollY / Math.max(1, body.scrollHeight - body.clientHeight));
       }
       if (patch.page && doc.pageCount) merged.progress = patch.page / doc.pageCount;
-      return store.putReadingState(doc.id, merged);
+      const previous = await store.getReadingState(doc.id);
+      const result = await store.putReadingState(doc.id, merged);
+      const changed = ['progress', 'page', 'scrollY', 'scrollRatio'].some(key => merged[key] !== undefined && merged[key] !== previous[key]);
+      if (changed && State.view && State.current?.id === doc.id) markReadOnce();
+      return result;
     },
     packageAssets: () => (transient ? Promise.resolve({}) : store.getPackageAssets(doc.id)),
     openFind: (finder) => openFindSheet(finder),
@@ -552,7 +565,7 @@ async function leaveViewer() {
   State.assetReturn = null;
   if (back) {
     const parent = await store.getDocument(back.docId);
-    if (parent) { await openDocument(parent); return; }
+    if (parent) { await openDocument(parent, { journalOpened: false }); return; }
   }
   await closeViewer();
   show('library');
@@ -592,6 +605,7 @@ async function closeViewer() {
   State.view = null;
   State.current = null;
   State.transient = false;
+  State.journalReadMarked = false;
   const body = $('#viewerBody');
   clear(body);
   clear($('#viewerTools'));
@@ -611,6 +625,12 @@ function onViewerScroll() {
       progress: Math.min(1, body.scrollTop / max),
     }).catch(() => {});
   }, 700);
+}
+
+function markReadOnce() {
+  if (!State.current || State.transient || State.journalReadMarked) return;
+  State.journalReadMarked = true;
+  journal.recordActivity(State.current, 'read').catch(() => {});
 }
 
 /* ── document text size: pinch, with a single-pointer alternative ──────── */
@@ -641,6 +661,9 @@ function attachBodyGestures(body) {
   State.viewerAbort = controller;
   const signal = controller.signal;
   body.addEventListener('scroll', onViewerScroll, { passive: true, signal });
+  body.addEventListener('pointerdown', markReadOnce, { passive: true, signal });
+  body.addEventListener('wheel', markReadOnce, { passive: true, signal });
+  body.addEventListener('keydown', markReadOnce, { signal });
 
   // Tap the page to hide both bars; the safe-area padding stays (spec 3-1).
   body.addEventListener('click', (event) => {
@@ -830,6 +853,59 @@ function paintSyncState() {
   line.textContent = `On · device ${label} · last sync ${ago}`;
   $('#btnSyncToggle').textContent = 'Turn off';
   $('#syncTokenRow').classList.remove('hidden');
+}
+
+function journalDateRange() {
+  const to = new Date();
+  const from = new Date(to);
+  from.setDate(from.getDate() - 92);
+  const value = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return { from: value(from), to: value(to) };
+}
+
+async function paintJournalState() {
+  const state = await journal.refreshJournalState();
+  $('#journalState').textContent = state.enabled
+    ? `${state.status || 'ready'}${state.pendingCount ? ` · ${state.pendingCount} pending` : ''}`
+    : 'Off — document activity stays local.';
+  $('#btnJournalToggle').textContent = state.enabled ? 'Turn off' : 'Turn on';
+}
+
+async function toggleJournal() {
+  if (journal.isJournalEnabled()) {
+    await journal.toggleJournal(false);
+    await paintJournalState();
+    return;
+  }
+  const name = await promptText('Name this journal device', 'Device name', sync.getContextLabel() || '');
+  if (name === null) return;
+  const result = await journal.toggleJournal(true, name);
+  if (!result.ok) toast(result.reason === 'token' ? 'Save an access token in Journal first.' : 'The journal device could not be created.');
+  else toast('Folio is now included in Daybook.');
+  await paintJournalState();
+}
+
+async function runJournalBackfill() {
+  if (!journal.isJournalEnabled()) { toast('Turn on Include in journal first.'); return; }
+  const from = $('#journalFrom').value;
+  const to = $('#journalTo').value;
+  if (!from || !to || from > to) { toast('Choose a valid date range.'); return; }
+  const docs = await store.listDocuments();
+  const count = docs.filter(doc => {
+    const date = new Date(Number(doc.addedAt));
+    if (Number.isNaN(date.getTime())) return false;
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return value >= from && value <= to;
+  }).length;
+  const ok = await confirmDialog({
+    title: 'Add existing history?',
+    message: `${count} document-added record${count === 1 ? '' : 's'} will be written. Past open and read activity cannot be reconstructed.`,
+    confirmLabel: 'Add history',
+  });
+  if (!ok) return;
+  const result = await journal.backfillJournal(docs, { from, to });
+  toast(result.error ? `Import paused with ${result.pendingCount || 0} pending.` : `Added ${result.records} records across ${result.dates} days.`);
+  await paintJournalState();
 }
 
 async function toggleSync() {
@@ -1049,6 +1125,10 @@ function wire() {
     show('settings');
     paintSegments();
     paintSyncState();
+    const range = journalDateRange();
+    $('#journalFrom').value = range.from;
+    $('#journalTo').value = range.to;
+    await paintJournalState();
     await paintUsage();
   });
   $('#btnSettingsBack').addEventListener('click', () => { show('library'); refreshLibrary(); });
@@ -1091,6 +1171,17 @@ function wire() {
     else toast('Sync finished.');
     paintSyncState();
   });
+  $('#btnJournalTokenSave').addEventListener('click', () => {
+    const value = $('#journalToken').value;
+    if (!sync.saveToken(value)) { toast('That token could not be saved.'); return; }
+    $('#journalToken').value = '';
+    toast('Journal access token saved.');
+  });
+  $('#btnJournalToggle').addEventListener('click', toggleJournal);
+  $('#btnJournalBackfill').addEventListener('click', runJournalBackfill);
+  $('#viewer').addEventListener('pointerdown', (event) => {
+    if (event.target.closest('#viewerTools button, #viewerBottom button, #viewerBody button, #viewerBody input, #viewerBody select, #viewerBody textarea')) markReadOnce();
+  }, { passive: true });
 
   $('#btnDeleteAll').addEventListener('click', deleteAll);
   $('#btnLicences').addEventListener('click', showLicences);

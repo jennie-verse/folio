@@ -280,6 +280,8 @@ table.csv tbody th{position:sticky;left:0;z-index:1;background:var(--rose-tint);
 .setrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .setrow > .grow{flex:1;min-width:120px}
 .sethelp{color:var(--text-2);font-size:var(--fs-small);margin:0 0 10px}
+.journal-dates{align-items:end;flex-wrap:wrap}
+.journal-dates label{display:grid;gap:5px;color:var(--text-2)}
 .usebar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin-bottom:6px}
 .usebar > i{display:block;height:100%}
 .usebar > i.f-write{background:var(--t-write)}

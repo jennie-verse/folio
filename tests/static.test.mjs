@@ -87,10 +87,10 @@ test("the build stamp in sw.js matches src/version.js", () => {
   assert.match(inSw, /^\d{4}\.\d{2}\.\d{2}-[a-z0-9]+$/);
 });
 
-test("the shared sync module is an optional cache entry, never in addAll", () => {
-  assert.match(sw, /const OPTIONAL = \['\.\.\/shared\/v1\/sync\.js'\]/);
+test("the shared sync and journal modules are optional cache entries, never in addAll", () => {
+  assert.match(sw, /const OPTIONAL = \['\.\.\/shared\/v1\/sync\.js', '\.\.\/shared\/v2\/journal\.js'\]/);
   const assetsBlock = /const ASSETS = \[([\s\S]*?)\n\];/.exec(sw)[1];
-  assert.doesNotMatch(assetsBlock, /shared\/v1/, "a missing shared module must not fail the install");
+  assert.doesNotMatch(assetsBlock, /shared\/v[12]/, "a missing shared module must not fail the install");
 });
 
 test("the landscape library rail has an accessible persistent toggle", () => {

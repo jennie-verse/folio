@@ -150,6 +150,25 @@
         <p class="sethelp">Only titles, tags, dates and sizes are uploaded. Documents never leave this device.</p>
       </section>
 
+      <section class="setgroup" aria-labelledby="hJournal">
+        <h2 id="hJournal">Journal</h2>
+        <div class="setrow">
+          <span class="grow" id="journalState" role="status">Off — document activity stays local.</span>
+          <button id="btnJournalToggle">Turn on</button>
+        </div>
+        <div class="setrow">
+          <input id="journalToken" type="password" placeholder="Access token" aria-label="Journal access token" autocomplete="off">
+          <button id="btnJournalTokenSave">Save token</button>
+        </div>
+        <p class="sethelp">Include in journal is separate from Sync and starts off. Only document titles, kinds, and added/opened/read/export-requested activity are sent; document contents and annotations never leave Folio.</p>
+        <div class="setrow journal-dates">
+          <label>From <input id="journalFrom" type="date"></label>
+          <label>To <input id="journalTo" type="date"></label>
+          <button id="btnJournalBackfill">Add existing history</button>
+        </div>
+        <p class="sethelp">Manual history import can recover document-added dates only.</p>
+      </section>
+
       <section class="setgroup" aria-labelledby="hDanger">
         <h2 id="hDanger">Danger</h2>
         <div class="setrow">
