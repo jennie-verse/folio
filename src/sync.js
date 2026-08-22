@@ -20,6 +20,8 @@
    정적 `import` 로 부르면 그 파일 하나를 못 받는 순간 모듈 그래프가 통째로 실패해
    앱이 빈 화면이 됩니다. (2026-08-10 loom 에서 실제로 재현한 문제) */
 
+import { webappDataConfig } from './deployment.js';
+
 let sharedPromise = null;
 
 async function api() {
@@ -36,12 +38,6 @@ async function api() {
 }
 
 const NAMESPACE = "folio";
-
-const REPO = Object.freeze({
-  owner: "jennie-verse",
-  repo: "webapp-data",
-  branch: "main",
-});
 
 export const KEYS = Object.freeze({
   token: "sync.token.v1",
@@ -170,7 +166,7 @@ export function isReady() {
 }
 
 function config() {
-  return { ...REPO, token: getToken() };
+  return webappDataConfig(getToken());
 }
 
 /** 화면에 그대로 보여 줄 수 있는 영문 한 줄로 바꿉니다. */
@@ -181,6 +177,7 @@ export function describeError(error) {
   if (error.type === "notfound") return "The repository path was not found.";
   if (error.type === "conflict") return "Another device wrote first. Queued to send again.";
   if (error.type === "toolarge") return "The document list is too large to sync.";
+  if (error.type === "configuration") return error.message;
   return "Sync failed. Check the token and repository access.";
 }
 

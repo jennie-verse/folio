@@ -1,11 +1,11 @@
 import * as sync from './sync.js';
 import { localDate, localIso, mergeFileActivity } from './journal-record.js';
+import { webappDataConfig } from './deployment.js';
 
 const ENABLED_KEY = 'folio.journalEnabled.v1';
 const ACTIVITY_KEY = 'folio.journalActivity.v1';
 let clientPromise = null;
 let lastState = { status: 'not reported', pendingCount: 0, errorCode: '' };
-const REPO = Object.freeze({ owner: 'jennie-verse', repo: 'webapp-data', branch: 'main' });
 
 function readItem(key) { try { return localStorage.getItem(key) || ''; } catch { return ''; } }
 function writeItem(key, value) { try { localStorage.setItem(key, value); } catch { /* local app remains usable */ } }
@@ -46,7 +46,7 @@ async function getClient() {
       resolveConfig: async () => {
         const token = sync.getToken();
         if (!token) throw Object.assign(new Error('Journal authentication unavailable'), { code: 'AUTH' });
-        return { ...REPO, token };
+        return webappDataConfig(token);
       },
       onState: state => { lastState = {
         ...lastState, status: state.status, pendingCount: state.pendingCount,
