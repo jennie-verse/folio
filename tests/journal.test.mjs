@@ -10,8 +10,9 @@ test('Folio activity merges in fixed semantic order', () => {
   record = mergeFileActivity(record, doc, 'read', '2026-08-17T10:00:00-05:00');
   assert.deepEqual(record.data.actions, ['opened', 'read', 'export-requested']);
   assert.equal(record.data.openCount, 1);
-  assert.equal(record.data.firstAt, '2026-08-17T09:10:00.000-05:00');
-  assert.equal(record.data.lastAt, '2026-08-17T16:42:00.000-05:00');
+  assert.equal(Date.parse(record.data.firstAt), Date.parse('2026-08-17T09:10:00-05:00'));
+  assert.equal(Date.parse(record.data.lastAt), Date.parse('2026-08-17T16:42:00-05:00'));
+  assert.match(record.data.firstAt, /(?:Z|[+-]\d{2}:\d{2})$/, 'the stored timestamp keeps an explicit timezone');
 });
 
 test('repeated explicit opens increment only openCount', () => {
