@@ -147,3 +147,9 @@ ZIP 패키지(`.zip`)는 Run 전용입니다. 실행 중 문제가 생기면 아
 - 5초가 지나면 확정됩니다. Files에 있는 **원본 파일은 건드리지 않습니다.**
 - Undo가 떠 있는 채로 앱을 닫으면 다음 실행에서 삭제가 확정됩니다.
 - 전체 삭제(`Delete all documents`)는 확인 대화상자가 뜹니다.
+
+## Daybook Journal 기록 복원
+
+- **Add existing history**는 문서 added 날짜뿐 아니라 저장된 highlight/note의 createdAt·updatedAt도 가져옵니다. 가져온 주석 참조가 보존되어 이후 삭제도 같은 remote record를 정리할 수 있습니다.
+- **Include selected text and note bodies**를 끄면 pending 및 새 record의 quote/note가 제외됩니다. **Remove content**는 선택 기간의 현재 projection만 정제합니다.
+- 90일 파일 metadata activity는 Journal opt-in과 무관하게 로컬에 보관되고 JSON 백업/복원에 포함됩니다. **Clear captured activity**는 문서·주석을 건드리지 않고 이 원장만 지웁니다.

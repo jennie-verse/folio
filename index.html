@@ -174,8 +174,10 @@
           <label>From <input id="journalFrom" type="date"></label>
           <label>To <input id="journalTo" type="date"></label>
           <button id="btnJournalBackfill">Add existing history</button>
+          <button class="danger" id="btnJournalRedact">Remove content</button>
+          <button id="btnJournalClearActivity">Clear captured activity</button>
         </div>
-        <p class="sethelp">Manual history import recovers document-added dates. New highlights, notes and excerpt exports are recorded as they happen.</p>
+        <p class="sethelp">Manual history import recovers document-added dates plus saved highlights and notes. Past opens and reading cannot be reconstructed. Remove content writes newer sanitized records for this date range; older Git commits can still retain the previous text.</p>
       </section>
 
       <section class="setgroup" aria-labelledby="hDanger">

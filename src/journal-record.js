@@ -52,7 +52,7 @@ function annotationKind(annotation, event) {
 }
 
 export function projectAnnotation(annotation, doc, event = 'created', {
-  at = new Date(), includeContent = true, deleted = false,
+  at = new Date(), includeContent = true, deleted = false, importedHistory = false,
 } = {}) {
   if (!annotation?.id || !doc?.id) throw new Error('Invalid Folio annotation activity');
   const timestamp = localIso(at);
@@ -75,6 +75,7 @@ export function projectAnnotation(annotation, doc, event = 'created', {
       ...(note ? { note } : {}),
       ...(annotation.semanticColor ? { semanticColor: String(annotation.semanticColor) } : {}),
       contentIncluded: includeContent,
+      ...(importedHistory ? { importedHistory: true, historyAccuracy: 'saved-timestamp' } : {}),
     },
   };
 }

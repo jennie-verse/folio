@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeFileActivity } from '../src/journal-record.js';
+import { withoutJournalContent, validateActivityLedger } from '../src/journal.js';
+import { mergeFileActivity, projectAnnotation } from '../src/journal-record.js';
 
 const doc = { id: 'fixture-doc', title: 'Fixture notes.md', fileName: 'fixture.md', kind: 'markdown', content: 'must not leave' };
 
@@ -28,6 +29,36 @@ test('projection includes metadata but never document body', () => {
   assert.equal(record.title, 'Fixture notes.md');
   assert.equal(record.data.itemType, 'markdown');
   assert.equal(JSON.stringify(record).includes('must not leave'), false);
+});
+
+test('annotation backfill identifies imported saved history', () => {
+  const record = projectAnnotation({
+    id: 'note-1', docId: doc.id, kind: 'note', quote: 'selected', note: 'body',
+    locator: { locationLabel: 'Page 2' },
+  }, doc, 'created', { at: '2026-08-17T09:00:00-05:00', importedHistory: true });
+  assert.equal(record.data.importedHistory, true);
+  assert.equal(record.data.historyAccuracy, 'saved-timestamp');
+});
+
+test('content redaction strips bodies while preserving identity and location metadata', () => {
+  const original = projectAnnotation({
+    id: 'note-2', docId: doc.id, kind: 'note', quote: 'selected', note: 'body',
+    locator: { locationLabel: 'Page 4', page: 4 },
+  }, doc, 'created', { at: '2026-08-17T09:00:00-05:00' });
+  const sanitized = withoutJournalContent(original);
+  assert.equal(sanitized.id, original.id);
+  assert.equal(sanitized.kind, original.kind);
+  assert.equal(sanitized.at, original.at);
+  assert.equal(sanitized.data.quote, undefined);
+  assert.equal(sanitized.data.note, undefined);
+  assert.equal(sanitized.data.locationLabel, 'Page 4');
+  assert.equal(sanitized.data.contentIncluded, false);
+});
+
+test('portable activity ledger validation rejects malformed records', () => {
+  const valid = mergeFileActivity(null, doc, 'opened', '2026-08-17T09:00:00-05:00');
+  assert.deepEqual(validateActivityLedger([valid]), [valid]);
+  assert.throws(() => validateActivityLedger([{ ...valid, kind: 'annotation' }]), /Invalid Journal activity ledger/);
 });
 
 test('actual open, read, import, and export paths are wired without touching retention semantics', async () => {

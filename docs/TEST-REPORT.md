@@ -1230,3 +1230,9 @@ sample ZIP 3건은 여전히 실기기/fixture가 필요하므로 통과로 세�
 - Back 후 같은 문서 재열기와 820×1180 → 1180×820 회전 뒤 접힘 유지.
 - 다시 펼치면 Library 320px, Viewer 860px로 복원.
 - 버튼 실제 크기 44×44px, Browser console warning/error 0건.
+
+## 2026-08-26 Journal annotation/ledger
+
+- **Pass:** 63개 회귀 검사와 전체 syntax; 기존 annotation created/updated 백필, journalRefs 보존, content redaction, 90일 ledger backup/restore/clear.
+- **Pass:** desktop·390×844 Journal 설정, overflow 0, console warning/error 0.
+- **Pending:** 실제 private E2E, iPhone/iPad Home Screen과 실제 PDF 선택/OCR 한계 확인.

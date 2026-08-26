@@ -18,6 +18,7 @@ import { base64, fromBase64, validateManifest } from './package.js';
 import { formatBytes, todayStamp } from './ui.js';
 import { APP_BUILD } from './version.js';
 import * as settings from './settings.js';
+import { exportActivityLedger, replaceActivityLedger, validateActivityLedger } from './journal.js';
 
 export const FORMAT = 'folio-backup';
 export const SCHEMA_VERSION = 1;
@@ -80,6 +81,7 @@ export async function build() {
     readingStates,
     annotations,
     bookmarks,
+    journalActivity: exportActivityLedger(),
     settings: settings.all(),
   };
 
@@ -182,8 +184,12 @@ export function validateAndNormalize(parsed) {
   const readingStates = referencedRows(parsed.readingStates, 'reading states', ids);
   const annotations = referencedRows(parsed.annotations, 'annotations', ids);
   const bookmarks = referencedRows(parsed.bookmarks, 'bookmarks', ids);
+  const journalActivity = parsed.journalActivity === undefined
+    ? undefined
+    : validateActivityLedger(parsed.journalActivity);
   return {
     documents, documentFiles, packageAssets, docText, readingStates, annotations, bookmarks,
+    journalActivity,
     settings: settings.normalizeBackupSettings(parsed.settings),
   };
 }
@@ -193,6 +199,7 @@ export async function restore(parsed) {
   const normalized = validateAndNormalize(parsed);
   await replaceFromBackup(normalized);
   settings.restorePortable(normalized.settings);
+  if (normalized.journalActivity !== undefined) replaceActivityLedger(normalized.journalActivity);
   return normalized.documents.length;
 }
 

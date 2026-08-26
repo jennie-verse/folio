@@ -1111,20 +1111,55 @@ async function runJournalBackfill() {
   const to = $('#journalTo').value;
   if (!from || !to || from > to) { toast('Choose a valid date range.'); return; }
   const docs = await store.listDocuments();
-  const count = docs.filter(doc => {
+  const annotations = await store.db.annotations.toArray();
+  const documentCount = docs.filter(doc => {
     const date = new Date(Number(doc.addedAt));
     if (Number.isNaN(date.getTime())) return false;
     const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     return value >= from && value <= to;
   }).length;
+  const annotationCount = annotations.filter(item => {
+    if (item.deletedAt) return false;
+    return [item.createdAt, item.updatedAt].some(value => {
+      const date = new Date(value);
+      if (!value || Number.isNaN(date.getTime())) return false;
+      const local = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      return local >= from && local <= to;
+    });
+  }).length;
   const ok = await confirmDialog({
     title: 'Add existing history?',
-    message: `${count} document-added record${count === 1 ? '' : 's'} will be written. Past open and read activity cannot be reconstructed.`,
+    message: `${documentCount} document-added and up to ${annotationCount} saved annotation record${documentCount + annotationCount === 1 ? '' : 's'} will be written. Past open and read activity cannot be reconstructed.`,
     confirmLabel: 'Add history',
   });
   if (!ok) return;
-  const result = await journal.backfillJournal(docs, { from, to });
+  const result = await journal.backfillJournal(docs, annotations, { from, to });
+  for (const item of result.annotationRefs || []) {
+    const row = await store.getAnnotation(item.annotationId);
+    if (!row) continue;
+    const refs = [...(row.journalRefs || []), ...item.refs]
+      .filter((value, index, all) => all.findIndex(other => other.date === value.date && other.kind === value.kind) === index);
+    await store.putAnnotation({ ...row, journalRefs: refs });
+  }
   toast(result.error ? `Import paused with ${result.pendingCount || 0} pending.` : `Added ${result.records} records across ${result.dates} days.`);
+  await paintJournalState();
+}
+
+async function runJournalRedaction() {
+  if (!journal.isJournalEnabled()) { toast('Turn on Include in journal first.'); return; }
+  if (journal.isJournalContentEnabled()) { toast('Turn off selected text and note bodies on every Folio installation first.'); return; }
+  const from = $('#journalFrom').value;
+  const to = $('#journalTo').value;
+  if (!from || !to || from > to) { toast('Choose a valid date range.'); return; }
+  const ok = await confirmDialog({
+    title: 'Remove journal content?',
+    message: `Selected text and note bodies from ${from} through ${to} will be replaced by newer sanitized records. Older Git history remains.`,
+    confirmLabel: 'Remove content',
+    danger: true,
+  });
+  if (!ok) return;
+  const result = await journal.redactJournalContent({ from, to });
+  toast(result.error ? `Content removal paused with ${result.pendingCount || 0} pending.` : `Removed content from ${result.redactedRecords} journal records.`);
   await paintJournalState();
 }
 
@@ -1409,6 +1444,18 @@ function wire() {
   });
   $('#btnJournalToggle').addEventListener('click', toggleJournal);
   $('#btnJournalBackfill').addEventListener('click', runJournalBackfill);
+  $('#btnJournalRedact').addEventListener('click', runJournalRedaction);
+  $('#btnJournalClearActivity').addEventListener('click', async () => {
+    const ok = await confirmDialog({
+      title: 'Clear captured activity?',
+      message: 'This clears Folio’s 90-day local file activity history on this device. Documents, annotations and remote Journal records are unchanged.',
+      confirmLabel: 'Clear activity',
+      danger: true,
+    });
+    if (!ok) return;
+    journal.clearActivityLedger();
+    toast('Captured activity cleared on this device.');
+  });
   $('#journalContent').addEventListener('change', async (event) => { await journal.setJournalContentEnabled(event.target.checked); await paintJournalState(); });
   $('#viewer').addEventListener('pointerdown', (event) => {
     if (event.target.closest('#viewerTools button, #viewerBottom button, #viewerBody button, #viewerBody input, #viewerBody select, #viewerBody textarea')) markReadOnce();

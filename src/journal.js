@@ -26,6 +26,39 @@ function saveActivityMap(value) {
   writeItem(ACTIVITY_KEY, JSON.stringify(kept));
 }
 
+function normalizedActivityMap(rows) {
+  if (!Array.isArray(rows)) throw new Error('Invalid Journal activity ledger.');
+  const next = {};
+  for (const record of rows) {
+    if (!record || typeof record !== 'object' || record.kind !== 'file-activity' || typeof record.id !== 'string') {
+      throw new Error('Invalid Journal activity ledger record.');
+    }
+    const date = record.id.slice(-10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !record.data?.itemId || !Array.isArray(record.data?.actions)) {
+      throw new Error('Invalid Journal activity ledger record.');
+    }
+    next[`${date}:${record.data.itemId}`] = record;
+  }
+  return next;
+}
+
+export function validateActivityLedger(rows) {
+  return Object.values(normalizedActivityMap(rows));
+}
+
+export function exportActivityLedger() {
+  return Object.values(activityMap());
+}
+
+export function replaceActivityLedger(rows) {
+  saveActivityMap(normalizedActivityMap(rows));
+  return exportActivityLedger();
+}
+
+export function clearActivityLedger() {
+  try { localStorage.removeItem(ACTIVITY_KEY); return true; } catch { return false; }
+}
+
 function deletionQueue() {
   const value = parse(readItem(DELETIONS_KEY), []);
   return Array.isArray(value) ? value : [];
@@ -54,7 +87,13 @@ function safeCode(error, fallback) {
 
 export function isJournalEnabled() { return readItem(ENABLED_KEY) === '1'; }
 export function isJournalContentEnabled() { return readItem(CONTENT_KEY) !== '0'; }
-export async function setJournalContentEnabled(enabled) { writeItem(CONTENT_KEY, enabled ? '1' : '0'); const client = await getClient(); if (client && !enabled) await client.transformPending(record => { const data = { ...(record.data || {}) }; delete data.quote; delete data.note; return { ...record, updatedAt: localIso(), data: { ...data, contentIncluded: false } }; }); await reportStatus(); }
+export function withoutJournalContent(record) {
+  const data = { ...(record?.data || {}) };
+  delete data.quote;
+  delete data.note;
+  return { ...record, updatedAt: localIso(), data: { ...data, contentIncluded: false } };
+}
+export async function setJournalContentEnabled(enabled) { writeItem(CONTENT_KEY, enabled ? '1' : '0'); const client = await getClient(); if (client && !enabled) await client.transformPending(withoutJournalContent); await reportStatus(); }
 export function getJournalState() { return { enabled: isJournalEnabled(), ...lastState }; }
 
 async function getClient() {
@@ -196,25 +235,62 @@ export async function drainDeletionQueue() {
   return drained;
 }
 
-export async function backfillJournal(documents, { from, to }) {
+export async function backfillJournal(documents, annotations, { from, to }) {
   const client = await getClient();
   if (!client) return { written: 0, error: new Error('Journal unavailable') };
   const eligible = documents.filter(doc => {
     try { const date = localDate(Number(doc.addedAt)); return !doc.deletedAt && date >= from && date <= to; }
     catch { return false; }
   });
-  const dates = new Set(eligible.map(doc => localDate(Number(doc.addedAt))));
+  const docMap = new Map(documents.filter(doc => !doc.deletedAt).map(doc => [String(doc.id), doc]));
+  const annotationRecords = [];
+  const annotationRefs = new Map();
+  for (const item of annotations || []) {
+    const doc = docMap.get(String(item.docId));
+    if (!doc || item.deletedAt) continue;
+    for (const [event, value] of [['created', item.createdAt], ['updated', item.updatedAt]]) {
+      if (!value || (event === 'updated' && value === item.createdAt)) continue;
+      let date;
+      try { date = localDate(value); } catch { continue; }
+      if (date < from || date > to) continue;
+      const record = projectAnnotation(item, doc, event, {
+        at: value, includeContent: isJournalContentEnabled(), importedHistory: true,
+      });
+      annotationRecords.push({ record, date });
+      const refs = annotationRefs.get(String(item.id)) || [];
+      refs.push({ id: record.id, date, kind: record.kind });
+      annotationRefs.set(String(item.id), refs);
+    }
+  }
+  const dates = new Set([
+    ...eligible.map(doc => localDate(Number(doc.addedAt))),
+    ...annotationRecords.map(item => item.date),
+  ]);
   await reportStatus({ backfill: { status: 'running', from, to, processedDates: 0, totalDates: dates.size, updatedAt: localIso() } });
   for (const doc of eligible) {
     const record = mergeFileActivity(null, doc, 'added', Number(doc.addedAt), { importedHistory: true });
     await client.enqueue(record, { date: localDate(record.at) });
   }
+  for (const item of annotationRecords) await client.enqueue(item.record, { date: item.date });
   const result = await client.flush();
   await reportStatus({ backfill: {
     status: result.error ? 'partial' : 'complete', from, to,
     processedDates: result.error ? 0 : dates.size, totalDates: dates.size, updatedAt: localIso(),
   } });
-  return { ...result, records: eligible.length, dates: dates.size };
+  return {
+    ...result,
+    records: eligible.length + annotationRecords.length,
+    documentRecords: eligible.length,
+    annotationRecords: annotationRecords.length,
+    annotationRefs: [...annotationRefs].map(([annotationId, refs]) => ({ annotationId, refs })),
+    dates: dates.size,
+  };
+}
+
+export async function redactJournalContent({ from, to }) {
+  const client = await getClient();
+  if (!client) return { redactedRecords: 0, pendingCount: 0, error: new Error('Journal unavailable') };
+  return client.redactRange({ from, to, transform: withoutJournalContent });
 }
 
 export async function refreshJournalState() {

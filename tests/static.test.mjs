@@ -370,6 +370,8 @@ test("restore validates and materializes everything before one atomic replacemen
     "package backups must use the same path, MIME and size validation as ZIP import");
   assert.match(store, /replaceFromBackup[\s\S]*db\.transaction\('rw'/);
   assert.match(backup, /settings\.restorePortable/);
+  assert.match(backup, /journalActivity: exportActivityLedger\(\)/);
+  assert.match(backup, /replaceActivityLedger\(normalized\.journalActivity\)/);
   assert.match(read("src/settings.js"), /normalizeBackupSettings/);
 });
 
