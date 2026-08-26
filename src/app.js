@@ -1409,7 +1409,7 @@ function wire() {
   });
   $('#btnJournalToggle').addEventListener('click', toggleJournal);
   $('#btnJournalBackfill').addEventListener('click', runJournalBackfill);
-  $('#journalContent').addEventListener('change', (event) => journal.setJournalContentEnabled(event.target.checked));
+  $('#journalContent').addEventListener('change', async (event) => { await journal.setJournalContentEnabled(event.target.checked); await paintJournalState(); });
   $('#viewer').addEventListener('pointerdown', (event) => {
     if (event.target.closest('#viewerTools button, #viewerBottom button, #viewerBody button, #viewerBody input, #viewerBody select, #viewerBody textarea')) markReadOnce();
   }, { passive: true });

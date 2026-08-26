@@ -40,7 +40,7 @@ export function mergeFileActivity(previous, doc, action, at = new Date(), option
       firstAt: previous?.data?.firstAt && previous.data.firstAt < timestamp ? previous.data.firstAt : timestamp,
       lastAt: previous?.data?.lastAt && previous.data.lastAt > timestamp ? previous.data.lastAt : timestamp,
       openCount: Math.max(0, Number(previous?.data?.openCount) || 0) + (action === 'opened' ? 1 : 0),
-      ...(options.importedHistory ? { importedHistory: true } : {}),
+      ...(options.importedHistory ? { importedHistory: true, historyAccuracy: options.historyAccuracy || 'inferred' } : {}),
     },
   };
 }
@@ -74,6 +74,7 @@ export function projectAnnotation(annotation, doc, event = 'created', {
       ...(quote ? { quote } : {}),
       ...(note ? { note } : {}),
       ...(annotation.semanticColor ? { semanticColor: String(annotation.semanticColor) } : {}),
+      contentIncluded: includeContent,
     },
   };
 }

@@ -20,7 +20,7 @@ function activityMap() {
 
 function saveActivityMap(value) {
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 45);
+  cutoff.setDate(cutoff.getDate() - 90);
   const cutoffDate = localDate(cutoff);
   const kept = Object.fromEntries(Object.entries(value).filter(([key]) => key.slice(0, 10) >= cutoffDate));
   writeItem(ACTIVITY_KEY, JSON.stringify(kept));
@@ -54,7 +54,7 @@ function safeCode(error, fallback) {
 
 export function isJournalEnabled() { return readItem(ENABLED_KEY) === '1'; }
 export function isJournalContentEnabled() { return readItem(CONTENT_KEY) !== '0'; }
-export function setJournalContentEnabled(enabled) { writeItem(CONTENT_KEY, enabled ? '1' : '0'); }
+export async function setJournalContentEnabled(enabled) { writeItem(CONTENT_KEY, enabled ? '1' : '0'); const client = await getClient(); if (client && !enabled) await client.transformPending(record => { const data = { ...(record.data || {}) }; delete data.quote; delete data.note; return { ...record, updatedAt: localIso(), data: { ...data, contentIncluded: false } }; }); await reportStatus(); }
 export function getJournalState() { return { enabled: isJournalEnabled(), ...lastState }; }
 
 async function getClient() {
@@ -103,7 +103,7 @@ export async function reportStatus(extra = {}) {
   const client = await getClient();
   if (!client) return false;
   try {
-    await client.reportStatus({ journalEnabled: isJournalEnabled(), ...extra });
+    await client.reportStatus({ journalEnabled: isJournalEnabled(), contentIncluded: isJournalContentEnabled(), ...extra });
     return true;
   } catch (error) {
     lastState = { ...lastState, status: 'error', errorCode: safeCode(error, 'STATUS_FAILED') };
@@ -113,13 +113,13 @@ export async function reportStatus(extra = {}) {
 
 export async function recordActivity(doc, action, { at = new Date(), importedHistory = false } = {}) {
   if (!doc?.id) return false;
-  if (!isJournalEnabled()) return false;
   const date = localDate(at);
   const key = `${date}:${doc.id}`;
   const map = activityMap();
   const record = mergeFileActivity(map[key], doc, action, at, { importedHistory });
   map[key] = record;
   saveActivityMap(map);
+  if (!isJournalEnabled()) return false;
   const client = await getClient();
   if (!client) { lastState = { ...lastState, status: 'error', errorCode: 'MODULE_UNAVAILABLE' }; return false; }
   try {
