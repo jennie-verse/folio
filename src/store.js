@@ -189,6 +189,32 @@ export async function getReadingState(docId) {
   return (await db.readingStates.get(docId)) || { docId };
 }
 
+/* ── annotations ──────────────────────────────────────────────────────── */
+
+export async function listAnnotations(docId, { includeDeleted = false, includeExports = true } = {}) {
+  const rows = await db.annotations.where('docId').equals(docId).toArray();
+  return rows.filter((item) => (includeDeleted || !item.deletedAt)
+    && (includeExports || item.kind !== 'exported-excerpt'))
+    .sort((a, b) => Number(a.locator?.page || 0) - Number(b.locator?.page || 0)
+      || Number(a.locator?.scrollRatio || 0) - Number(b.locator?.scrollRatio || 0)
+      || Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+}
+
+export async function getAnnotation(id) { return db.annotations.get(id); }
+
+export async function putAnnotation(annotation) {
+  await db.annotations.put(annotation);
+  return annotation;
+}
+
+export async function softDeleteAnnotation(id) {
+  const annotation = await db.annotations.get(id);
+  if (!annotation || annotation.deletedAt) return annotation || null;
+  const next = { ...annotation, deletedAt: Date.now(), updatedAt: new Date().toISOString(), revision: Number(annotation.revision || 1) + 1 };
+  await db.annotations.put(next);
+  return next;
+}
+
 /* ── searchable text ───────────────────────────────────────────────────── */
 
 const TEXT_PART_BYTES = 200000;

@@ -144,7 +144,13 @@ export async function render(ctx) {
           viewport,
         });
         await textLayer.render();
-      } catch { layer.remove(); }
+      } catch (error) {
+        // Keep the layer container in place and surface the failure for
+        // diagnostics. Removing it silently made a text PDF indistinguishable
+        // from a scan and prevented native Copy / Look Up without explanation.
+        layer.dataset.textLayerError = 'true';
+        console.warn('pdf text layer', { page: number, error });
+      }
     }
   }
 

@@ -12,6 +12,7 @@ import * as relink from './relink.js';
 import * as sync from './sync.js';
 import * as syncRunner from './sync-runner.js';
 import * as journal from './journal.js';
+import * as annotation from './annotation.js';
 import * as pkg from './package.js';
 import { TAG_OF, KINDS, detect } from './detect.js';
 import { APP_BUILD } from './version.js';
@@ -46,6 +47,9 @@ const State = {
   pendingZoom: null,
   libraryCollapsed: false,
   journalReadMarked: false,
+  selection: null,
+  highlightCleanup: null,
+  annotationObserver: null,
 };
 
 /* ── routing ───────────────────────────────────────────────────────────── */
@@ -317,6 +321,8 @@ async function deleteDocument(doc) {
 
   const timer = setTimeout(async () => {
     State.pendingUndo.delete(doc.id);
+    const annotations = await store.listAnnotations(doc.id, { includeDeleted: true });
+    for (const item of annotations) await journal.deleteAnnotation(item, doc).catch(() => false);
     const removed = await store.finalizeDelete(doc.id);
     if (removed) sync.markDeleted(removed);
     search.invalidateTextIndex();
@@ -462,6 +468,8 @@ async function showInViewer(record, blob, { transient = false } = {}) {
   const reading = transient ? {} : await store.getReadingState(record.id);
   applyDocZoom(reading);
   attachBodyGestures(body);
+  if (!transient) await attachAnnotationTools(body);
+  $('#btnAnnotations').classList.toggle('hidden', transient);
   if (['text', 'markdown'].includes(record.kind)) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const max = Math.max(0, body.scrollHeight - body.clientHeight);
@@ -601,6 +609,13 @@ async function closeViewer() {
   State.pendingZoom = null;
   State.viewerAbort?.abort();
   State.viewerAbort = null;
+  State.annotationObserver?.disconnect();
+  State.annotationObserver = null;
+  State.highlightCleanup?.();
+  State.highlightCleanup = null;
+  State.selection = null;
+  $('#annotationToolbar').classList.add('hidden');
+  $('#btnAnnotations').classList.add('hidden');
   if (State.view && State.view.destroy) { try { State.view.destroy(); } catch { /* already gone */ } }
   State.view = null;
   State.current = null;
@@ -667,6 +682,7 @@ function attachBodyGestures(body) {
 
   // Tap the page to hide both bars; the safe-area padding stays (spec 3-1).
   body.addEventListener('click', (event) => {
+    if (window.getSelection()?.toString().trim()) return;
     if (event.target.closest('a,button,input,select,textarea,iframe,mark')) return;
     $('#viewer').classList.toggle('bars-hidden');
   }, { signal });
@@ -721,6 +737,209 @@ function attachBodyGestures(body) {
   body.addEventListener('pointercancel', drop, { signal });
 }
 
+/* ── highlights, notes and Markdown excerpts ─────────────────────────── */
+
+function annotationTimestamp() { return new Date().toISOString(); }
+
+async function paintAnnotations() {
+  if (!State.current || State.transient) return;
+  State.highlightCleanup?.();
+  const rows = await store.listAnnotations(State.current.id, { includeExports: false });
+  State.highlightCleanup = annotation.applyStoredHighlights($('#viewerBody'), rows);
+}
+
+async function attachAnnotationTools(body) {
+  await paintAnnotations();
+  let paintTimer = null;
+  State.annotationObserver = new MutationObserver(() => {
+    clearTimeout(paintTimer);
+    paintTimer = setTimeout(() => paintAnnotations().catch(() => {}), 80);
+  });
+  State.annotationObserver.observe(body, { childList: true, subtree: true });
+  const updateSelection = () => {
+    const captured = annotation.captureSelection(body);
+    if (captured) State.selection = captured;
+    $('#annotationToolbar').classList.toggle('hidden', !captured);
+  };
+  document.addEventListener('selectionchange', updateSelection, { signal: State.viewerAbort.signal });
+  body.addEventListener('pointerup', () => setTimeout(updateSelection, 0), { signal: State.viewerAbort.signal });
+}
+
+function clearSelectionAction() {
+  $('#annotationToolbar').classList.add('hidden');
+  try { window.getSelection()?.removeAllRanges(); } catch { /* selection may belong to a closed view */ }
+}
+
+async function saveJournalRef(item, event) {
+  if (!annotation.journalTextFits(item)) {
+    toast('Saved locally. This selection is too long for Journal.');
+    return item;
+  }
+  const ref = await journal.recordAnnotation(item, State.current, event);
+  if (!ref) return item;
+  const refs = [...(item.journalRefs || []), ref].filter((value, index, all) => all.findIndex((other) => other.date === value.date && other.kind === value.kind) === index);
+  const next = { ...item, journalRefs: refs };
+  await store.putAnnotation(next);
+  return next;
+}
+
+function noteEditor({ title, note = '', color = 'core', allowColor = true } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+    customSheet((panel, close) => {
+      panel.classList.add('annotation-editor');
+      panel.appendChild(el('h2', { text: title || 'Note' }));
+      const textarea = el('textarea', { 'aria-label': 'Note', placeholder: 'Write a note…' });
+      textarea.value = note;
+      panel.appendChild(textarea);
+      let selectedColor = color;
+      if (allowColor) {
+        const select = el('select', { 'aria-label': 'Highlight meaning' });
+        [['core', 'Core'], ['agree', 'Agree'], ['question', 'Question'], ['word', 'Word'], ['quote', 'Quote']].forEach(([value, label]) => {
+          const option = el('option', { value, text: label });
+          if (value === selectedColor) option.selected = true;
+          select.appendChild(option);
+        });
+        select.addEventListener('change', () => { selectedColor = select.value; });
+        panel.appendChild(select);
+      }
+      panel.appendChild(el('div', { class: 'row' }, [
+        el('button', { class: 'primary', type: 'button', text: 'Save', onclick: () => { close(); finish({ note: textarea.value.normalize('NFC').trim(), color: selectedColor }); } }),
+        el('button', { type: 'button', text: 'Cancel', onclick: () => { close(); finish(null); } }),
+      ]));
+      requestAnimationFrame(() => textarea.focus());
+    }, { onDismiss: () => finish(null) });
+  });
+}
+
+async function createAnnotation(kind, { note = '', semanticColor = 'core', selection = State.selection } = {}) {
+  if (!State.current || State.transient) return null;
+  const now = annotationTimestamp();
+  const location = selection?.locator || annotation.currentLocation($('#viewerBody'));
+  const item = {
+    id: store.newId(), docId: State.current.id, kind,
+    quote: String(selection?.quote || '').normalize('NFC'), note: String(note || '').normalize('NFC'),
+    semanticColor, locator: location, revision: 1,
+    createdAt: now, updatedAt: now, deletedAt: null, journalRefs: [],
+  };
+  await store.putAnnotation(item);
+  await saveJournalRef(item, 'created');
+  await paintAnnotations();
+  return item;
+}
+
+async function highlightSelection() {
+  if (!State.selection) return;
+  await createAnnotation('highlight');
+  clearSelectionAction();
+  toast('Highlight saved.');
+}
+
+async function noteSelection() {
+  if (!State.selection) return;
+  const result = await noteEditor({ title: 'Note on selection', color: 'core' });
+  if (!result) return;
+  await createAnnotation('highlight', { note: result.note, semanticColor: result.color });
+  clearSelectionAction();
+  toast('Highlight and note saved.');
+}
+
+async function shareMarkdown(content, name) {
+  const file = new File([content], name, { type: 'text/markdown;charset=utf-8' });
+  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return; } catch (error) { if (error?.name === 'AbortError') return; }
+  }
+  downloadBlob(file, name);
+}
+
+async function exportSelection() {
+  if (!State.selection || !State.current) return;
+  const saved = await store.listAnnotations(State.current.id, { includeExports: false });
+  const attached = saved.find((entry) => entry.quote === State.selection.quote
+    && String(entry.locator?.locationLabel || '') === String(State.selection.locator?.locationLabel || ''));
+  const item = await createAnnotation('exported-excerpt', { note: attached?.note || '' });
+  if (!item) return;
+  const content = annotation.serializeAnnotationMarkdown(item, State.current);
+  const name = annotation.annotationFileName(State.current, 'excerpt');
+  clearSelectionAction();
+  await shareMarkdown(content, name);
+  toast('Markdown ready.');
+}
+
+async function addStandaloneNote() {
+  const result = await noteEditor({ title: 'Add note', allowColor: false });
+  if (!result || !result.note) return;
+  await createAnnotation('note', { note: result.note, selection: null });
+  toast('Note saved.');
+  await openAnnotationsSheet();
+}
+
+async function editAnnotation(item) {
+  const result = await noteEditor({ title: item.quote ? 'Edit highlight' : 'Edit note', note: item.note, color: item.semanticColor, allowColor: item.kind === 'highlight' });
+  if (!result) return;
+  const next = { ...item, note: result.note, semanticColor: result.color, revision: Number(item.revision || 1) + 1, updatedAt: annotationTimestamp() };
+  await store.putAnnotation(next);
+  await saveJournalRef(next, 'updated');
+  await paintAnnotations();
+  toast('Saved.');
+  await openAnnotationsSheet();
+}
+
+async function removeAnnotation(item) {
+  const ok = await confirmDialog({ title: 'Delete this note?', message: 'It will also be removed from Daybook after Journal syncs.', confirmLabel: 'Delete', danger: true });
+  if (!ok) return;
+  await journal.deleteAnnotation(item, State.current).catch(() => false);
+  await store.softDeleteAnnotation(item.id);
+  await paintAnnotations();
+  toast('Deleted.');
+  await openAnnotationsSheet();
+}
+
+async function exportOneAnnotation(item) {
+  const exported = await createAnnotation('exported-excerpt', {
+    note: item.note,
+    selection: { quote: item.quote, locator: item.locator },
+  });
+  const content = annotation.serializeAnnotationMarkdown(exported, State.current);
+  await shareMarkdown(content, annotation.annotationFileName(State.current, item.kind === 'note' ? 'note' : 'excerpt'));
+}
+
+async function exportAllAnnotations() {
+  const items = await store.listAnnotations(State.current.id, { includeExports: false });
+  if (!items.length) { toast('There are no notes to export.'); return; }
+  const content = annotation.serializeDocumentAnnotations(items, State.current);
+  await shareMarkdown(content, annotation.annotationFileName(State.current));
+  journal.recordActivity(State.current, 'export-requested').catch(() => {});
+}
+
+async function openAnnotationsSheet() {
+  if (!State.current || State.transient) return;
+  const items = await store.listAnnotations(State.current.id, { includeExports: false });
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'Notes and highlights' }));
+    panel.appendChild(el('div', { class: 'row' }, [
+      el('button', { class: 'primary', type: 'button', text: 'Add note here', onclick: () => { close(); addStandaloneNote(); } }),
+      el('button', { type: 'button', text: 'Export all .md', disabled: !items.length, onclick: () => { close(); exportAllAnnotations(); } }),
+    ]));
+    const list = el('div', { class: 'annotation-list' });
+    if (!items.length) list.appendChild(el('p', { class: 'muted', text: 'Select text to highlight it, or add a note at the current location.' }));
+    items.forEach((item) => {
+      const card = el('article', { class: 'annotation-item' });
+      card.appendChild(el('div', { class: 'small muted', text: `${item.kind === 'note' ? 'Note' : 'Highlight'}${item.locator?.locationLabel ? ` · ${item.locator.locationLabel}` : ''}` }));
+      if (item.quote) card.appendChild(el('blockquote', { text: item.quote }));
+      if (item.note) card.appendChild(el('p', { text: item.note }));
+      card.appendChild(el('div', { class: 'row' }, [
+        el('button', { type: 'button', text: 'Edit', onclick: () => { close(); editAnnotation(item); } }),
+        el('button', { type: 'button', text: 'Export .md', onclick: () => exportOneAnnotation(item) }),
+        el('button', { class: 'danger', type: 'button', text: 'Delete', onclick: () => { close(); removeAnnotation(item); } }),
+      ]));
+      list.appendChild(card);
+    });
+    panel.appendChild(list);
+  });
+}
+
 /** The title button is the single-pointer alternative to the pinch, required
     by WCAG 2.1 SC 2.5.1 (design 8장). */
 function openDocumentSheet() {
@@ -743,6 +962,7 @@ function openDocumentSheet() {
       return;
     }
     panel.appendChild(el('div', { class: 'row' }, [
+      el('button', { type: 'button', text: 'Notes', onclick: () => { close(); openAnnotationsSheet(); } }),
       el('button', { type: 'button', text: doc.pinned ? 'Unpin' : 'Pin', onclick: () => { close(); togglePin(doc); } }),
       el('button', { type: 'button', text: 'Rename', onclick: () => { close(); renameDocument(doc); } }),
       el('button', { type: 'button', text: 'Export original', disabled: doc.released, onclick: () => { close(); exportOriginal(doc); } }),
@@ -991,6 +1211,10 @@ async function deleteAll() {
   });
   if (!ok) return;
   const docs = await store.listDocuments();
+  for (const doc of docs) {
+    const annotations = await store.listAnnotations(doc.id, { includeDeleted: true });
+    for (const item of annotations) await journal.deleteAnnotation(item, doc).catch(() => false);
+  }
   await store.deleteEverything();
   // A whole-library delete IS a user delete, so tombstones are correct here.
   docs.forEach((doc) => sync.markDeleted(doc));
@@ -1125,6 +1349,7 @@ function wire() {
     show('settings');
     paintSegments();
     paintSyncState();
+    $('#journalContent').checked = journal.isJournalContentEnabled();
     const range = journalDateRange();
     $('#journalFrom').value = range.from;
     $('#journalTo').value = range.to;
@@ -1136,6 +1361,11 @@ function wire() {
   $('#btnBack').addEventListener('click', () => { leaveViewer(); });
   $('#btnLibraryToggle').addEventListener('click', toggleLibraryRail);
   $('#viewerTitle').addEventListener('click', openDocumentSheet);
+  $('#btnAnnotations').addEventListener('click', openAnnotationsSheet);
+  $('#annotationToolbar').addEventListener('pointerdown', (event) => event.preventDefault());
+  $('#btnSelectionHighlight').addEventListener('click', highlightSelection);
+  $('#btnSelectionNote').addEventListener('click', noteSelection);
+  $('#btnSelectionExport').addEventListener('click', exportSelection);
 
   $$('#segTextSize button').forEach((button) => {
     button.addEventListener('click', () => { settings.set('fs', Number(button.dataset.fs)); paintSegments(); refreshContinue(); });
@@ -1179,6 +1409,7 @@ function wire() {
   });
   $('#btnJournalToggle').addEventListener('click', toggleJournal);
   $('#btnJournalBackfill').addEventListener('click', runJournalBackfill);
+  $('#journalContent').addEventListener('change', (event) => journal.setJournalContentEnabled(event.target.checked));
   $('#viewer').addEventListener('pointerdown', (event) => {
     if (event.target.closest('#viewerTools button, #viewerBottom button, #viewerBody button, #viewerBody input, #viewerBody select, #viewerBody textarea')) markReadOnce();
   }, { passive: true });
@@ -1221,6 +1452,7 @@ async function boot() {
   syncRunner.attach({ getDocs: () => store.listDocuments() });
   syncRunner.onSyncState(() => paintSyncState());
   if (sync.isReady()) syncRunner.schedulePush();
+  if (journal.isJournalEnabled()) journal.drainDeletionQueue().catch(() => {});
 
   // Retention runs once a day at most, and never before the library is drawn.
   const lastCleanup = settings.getLastCleanupAt();

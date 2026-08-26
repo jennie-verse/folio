@@ -44,3 +44,36 @@ export function mergeFileActivity(previous, doc, action, at = new Date(), option
     },
   };
 }
+
+function annotationKind(annotation, event) {
+  if (annotation.kind === 'exported-excerpt') return 'excerpt-exported';
+  if (annotation.kind === 'note') return event === 'updated' ? 'note-updated' : 'note-created';
+  return event === 'updated' ? 'highlight-updated' : 'highlight-created';
+}
+
+export function projectAnnotation(annotation, doc, event = 'created', {
+  at = new Date(), includeContent = true, deleted = false,
+} = {}) {
+  if (!annotation?.id || !doc?.id) throw new Error('Invalid Folio annotation activity');
+  const timestamp = localIso(at);
+  const quote = includeContent ? String(annotation.quote || '').normalize('NFC') : '';
+  const note = includeContent ? String(annotation.note || '').normalize('NFC') : '';
+  return {
+    id: String(annotation.id),
+    kind: annotationKind(annotation, event),
+    at: timestamp,
+    updatedAt: timestamp,
+    deleted: deleted === true,
+    title: String(doc.title || doc.fileName || 'Untitled').normalize('NFC'),
+    data: {
+      documentId: String(doc.id),
+      documentTitle: String(doc.title || doc.fileName || 'Untitled').normalize('NFC'),
+      documentType: String(doc.kind || 'document'),
+      locationLabel: String(annotation.locator?.locationLabel || '').normalize('NFC'),
+      ...(annotation.locator?.page ? { page: Number(annotation.locator.page) } : {}),
+      ...(quote ? { quote } : {}),
+      ...(note ? { note } : {}),
+      ...(annotation.semanticColor ? { semanticColor: String(annotation.semanticColor) } : {}),
+    },
+  };
+}

@@ -59,6 +59,19 @@
 - 문서 본문 글자 크기는 **문서마다 따로 저장**되고, 설정(Settings)의 앱 글자
   크기와는 별개입니다.
 
+### 선택·하이라이트·메모
+
+- PDF의 실제 텍스트, TXT, Markdown, CSV 등에서 글자를 선택하면 Apple의
+  `Copy`, `Look Up` 같은 기본 메뉴를 그대로 사용할 수 있습니다.
+- 선택이 유지되는 동안 Folio 작업 막대에서 `Highlight`, `Add note`,
+  `Export .md`를 선택할 수 있습니다.
+- 상단의 `▧` 또는 제목 메뉴의 `Notes`에서 저장한 하이라이트와 메모를 보고,
+  수정·삭제·개별 내보내기·문서 전체 Markdown 내보내기를 할 수 있습니다.
+- 선택하지 않고 `Add note here`를 누르면 현재 PDF 페이지 또는 문서의 현재
+  읽기 위치에 독립 메모가 저장됩니다.
+- 주석은 Folio 데이터에 따로 저장되며 원본 PDF와 문서 파일은 수정하지 않습니다.
+- 스캔 PDF와 이미지는 선택할 실제 텍스트가 없으므로 독립 메모만 사용할 수 있습니다.
+
 ### 형식별 도구
 
 | 형식 | 위쪽 | 아래쪽 |
@@ -118,6 +131,7 @@ ZIP 패키지(`.zip`)는 Run 전용입니다. 실행 중 문제가 생기면 아
 | Storage | `Retention` (7d·14d·30d·Never) · `Release expired now` · 사용량 |
 | Backup | `Export backup` · `Restore from backup` |
 | Sync | 기본 꺼짐. 켤 때 기기 이름을 먼저 묻습니다 |
+| Journal | 기본 꺼짐. Daybook에 활동을 보냅니다. 선택 문구·메모 본문 포함 여부를 따로 정합니다 |
 | Danger | `Delete all documents` |
 | About | 빌드 번호 · `Licences` |
 
