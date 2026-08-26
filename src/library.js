@@ -172,9 +172,15 @@ function metaLine(doc) {
   return parts.filter(Boolean).join(' · ');
 }
 
-/** One list row. Tap opens, long press opens the row sheet. */
-export function documentRow(doc, { onOpen, onMenu, retentionDays }) {
-  const row = el('button', { class: keepClass(doc), type: 'button' });
+/** One list row. Tap opens, long press opens the row sheet.
+    In selection mode (`selectMode: true`), tap toggles selection instead —
+    used by "Export selected .md" (folio multi-export plan). */
+export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = false, selected = false, onToggleSelect }) {
+  const row = el('button', { class: keepClass(doc) + (selectMode && selected ? ' selected' : ''), type: 'button' });
+  if (selectMode) {
+    row.setAttribute('aria-pressed', String(selected));
+    row.appendChild(el('span', { class: 'selectbox', 'aria-hidden': 'true', text: selected ? '✓' : '' }));
+  }
   const main = el('div', { class: 'dr-main' }, [
     el('div', { class: 'dr-title', text: doc.title || doc.fileName || 'Untitled' }),
     el('div', { class: 'dr-sub', text: metaLine(doc) }),
@@ -187,6 +193,11 @@ export function documentRow(doc, { onOpen, onMenu, retentionDays }) {
   const days = doc.released ? '' : retention.expiryBadge(doc, retentionDays);
   if (days) row.appendChild(el('span', { class: 'badge days', text: days }));
   row.appendChild(tagFor(doc));
+
+  if (selectMode) {
+    row.addEventListener('click', () => onToggleSelect(doc));
+    return row;
+  }
 
   let pressTimer = null;
   let longPressed = false;

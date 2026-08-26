@@ -1236,3 +1236,58 @@ sample ZIP 3건은 여전히 실기기/fixture가 필요하므로 통과로 세�
 - **Pass:** 63개 회귀 검사와 전체 syntax; 기존 annotation created/updated 백필, journalRefs 보존, content redaction, 90일 ledger backup/restore/clear.
 - **Pass:** desktop·390×844 Journal 설정, overflow 0, console warning/error 0.
 - **Pending:** 실제 private E2E, iPhone/iPad Home Screen과 실제 PDF 선택/OCR 한계 확인.
+
+## 2026-08-26 여러 문서 묶어 내보내기 (B-3)
+
+계획서: `Plan/webapp-benchmark/Productivity_App_Benchmark_Plan_2026-08-26.md` B-3. Markdown 형식은 `Plan/folio_annotations-daybook-plan/Folio_Annotations_Daybook_Plan_2026-08-25.md` 3.4~3.5절을 그대로 이어씀.
+
+### 바꾼 것
+
+- `src/annotation.js` — 문서 단위 출력을 만드는 부분을 `documentAnnotationLines()`로 뽑아내 단일 내보내기(`serializeDocumentAnnotations`, headingLevel 1: `#`문서/`##`항목)와 새 묶어 내보내기(`serializeMultiDocumentAnnotations`, headingLevel 2: `##`문서/`###`항목)가 같은 로직을 공유하도록 함. `multiAnnotationFileName()` 추가(`folio-notes-YYYY-MM-DD.md`).
+- `src/library.js` — `documentRow()`에 `selectMode`/`selected`/`onToggleSelect` 옵션 추가. 선택 모드에서는 체크박스가 보이고 탭하면 열기 대신 선택 토글.
+- `src/app.js` — 선택 상태(`State.selectMode`, `State.selectedIds`), 선택 모드 토글·해제, 재배치+내보내기 시트(`openExportSelectedSheet`), 결합 내보내기 본문 생성(`buildMultiExportContent`, 5MB 상한), Web Share → 다운로드 → Markdown 복사, `journal.recordActivity(doc, 'export-requested')`를 선택한 문서마다 호출(기존 "Export all .md"와 동일한 액션, 새 kind 없음).
+- `index.html` — 라이브러리 상단에 `Select` 아이콘 버튼, 선택 모드 전용 하단 바(개수·Clear·Export selected .md).
+- `assets/app.css` — `.selectbox`/`.docrow.selected`/`#selectionBar` 스타일 추가.
+- `tests/annotation.test.mjs` — 묶어 내보내기 순서·헤딩 레벨·frontmatter·주석 없는 문서 처리·삭제/내보내기 이력 제외·파일명 5건 추가.
+- `tests/static.test.mjs` — 일반 Sync가 `quote`/`note`/`annotation`을 전혀 참조하지 않는지, shared의 folio kind 목록이 그대로인지, 50개/5MB 상한이 코드와 안내 메시지에 실제로 있는지 3건 추가.
+- `sw.js`, `src/version.js` — 캐시 버전 `2026.08.26-journalannotationredaction1` → `2026.08.26-multiexport1`.
+
+### 주석 없는 문서 처리 — 정한 것
+
+**조용히 건너뛰지 않고, `##` 문서 제목 아래 `_No annotations._`로 표시하고 문서 개수에 포함시킨다.** frontmatter의 `document_count`/`documents` 목록이 실제 본문과 항상 일치해야, 여러 문서를 골랐는데 일부가 아무 설명 없이 사라진 것처럼 보이는 혼란이 없기 때문.
+
+### 통과 — 자동
+
+`npm test` **70/70 통과**(annotation 8 · static 53 포함, 기존 63건 회귀 없음), `npm run test:syntax` 통과.
+
+### 통과 — 실제 브라우저(2026-08-26, 이 세션에서 헤드리스 Chrome + DevTools Protocol)
+
+`WebApp/Published/`를 정적 서버로 띄우고, `store.putDocument`/`store.putAnnotation`으로 한글 문서 3건(A: 독립 메모, B: 하이라이트, C: 주석 없음)을 만든 뒤 새로고침해 실제 앱 로드 경로로 반영시키고, 실제 클릭으로 조작했습니다.
+
+- [x] `Select` 버튼 → 라이브러리 행에 체크박스 표시, 탭하면 열람 대신 선택
+- [x] 3건 전부 선택 → 카운트 "3 selected", `Export selected .md` 활성화
+- [x] 재배치 시트 기본 순서 = 제목 오름차순(A, B, C)
+- [x] Up 버튼으로 C를 맨 앞으로 이동 → 순서가 실제로 바뀜(C, A, B)
+- [x] `Copy Markdown` → 클립보드 내용이 정확히: frontmatter(`app`/`exported_at`/`document_count: 3`/`documents:` 재배치된 순서)+`## C No Notes.md`/`_No annotations._`+`## A Document.md`/`### Note · 5%`/한글 메모 무손실+`## B Document.md`/`### Highlight · 10%`/한글 인용문 무손실(`>` blockquote)
+- [x] 내보내기 완료 후 선택 모드 자동 해제, 라이브러리가 평상시 하단 바로 복귀
+- [x] 전체 시나리오에서 콘솔 오류·예외 **0건**
+
+### 완료 조건 대조
+
+- [x] 다중 선택 → 순서 재배치(위/아래 버튼) → 하나의 `.md`로 내보내기 동작(실측 확인)
+- [x] 기존 단일 문서 내보내기(`Export .md`/`Export all .md`) 코드 미변경, 관련 8개 기존 테스트 그대로 통과 → 회귀 없음
+- [x] 주석 없는 문서 처리 방식이 정해지고 일관됨(위 "정한 것" 참고, 테스트로 고정)
+- [x] 한글 제목·본문 무손실(실측 확인)
+- [x] 일반 Sync payload에 인용문·메모가 안 들어감 — `tests/static.test.mjs`의 신규 테스트로 소스 자체에 `quote`/`note`/`annotation` 참조가 없음을 고정
+- [x] Share 미지원 환경에서 다운로드 fallback(`shareMarkdown` 기존 로직 재사용, 신규 로직 없음) + `Copy Markdown`은 실측으로 클립보드 내용 확인
+- [x] 글자 크기 6단계 — 새 UI가 전부 기존 `.docrow`/`.sheet`/`.row`/`.btn` 등 기존 CSS 변수(`var(--fs-*)`, `var(--tap)`) 기반 클래스만 사용, 새 고정 px 없음
+- [x] 콘솔 오류 0건(실측)
+- [x] `sw.js` 캐시 버전 상승(신규 모듈 파일은 없음 — 기존 `src/*.js` 캐시 목록 그대로, 내용만 바뀜)
+- [x] 기존 63개 + 신규 7개 = 70개 테스트 통과
+
+### Pending — 실기기(iPhone/iPad)에서 확인 필요
+
+- [ ] 선택 모드에서 6px·8px 단계에서 체크박스와 뱃지가 겹치지 않는지
+- [ ] 50개에 가까운 문서를 실제로 골랐을 때 재배치 시트 스크롤이 매끄러운지
+- [ ] 실제 iOS Share Sheet에서 `Export selected .md`가 정상적으로 뜨는지, 미지원 상황에서 다운로드로 정상 대체되는지
+- [ ] `Copy Markdown` 결과를 iOS 메모/Files 붙여넣기 했을 때 한글이 정상 표시되는지

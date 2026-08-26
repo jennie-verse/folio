@@ -50,7 +50,14 @@ const State = {
   selection: null,
   highlightCleanup: null,
   annotationObserver: null,
+  selectMode: false,
+  selectedIds: new Set(),
 };
+
+// folio multi-export plan: guardrails so a giant combined file can't be
+// built silently — the user is told, not just quietly truncated.
+const MULTI_EXPORT_MAX_DOCS = 50;
+const MULTI_EXPORT_MAX_BYTES = 5 * 1024 * 1024;
 
 /* ── routing ───────────────────────────────────────────────────────────── */
 
@@ -121,6 +128,9 @@ async function refreshLibrary() {
       retentionDays: days,
       onOpen: openDocument,
       onMenu: openRowSheet,
+      selectMode: State.selectMode,
+      selected: State.selectedIds.has(doc.id),
+      onToggleSelect: toggleDocSelection,
     })]));
   });
 
@@ -135,7 +145,127 @@ async function refreshLibrary() {
     }));
   }
 
-  await refreshContinue();
+  if (!State.selectMode) await refreshContinue();
+}
+
+/* ── multi-select (Export selected .md) ───────────────────────────────── */
+
+function updateSelectionBar() {
+  const count = State.selectedIds.size;
+  $('#selectionCount').textContent = `${count} selected`;
+  $('#btnSelectNext').disabled = count === 0;
+}
+
+function setSelectMode(on) {
+  State.selectMode = on;
+  if (!on) State.selectedIds.clear();
+  $('#btnSelectMode').setAttribute('aria-pressed', String(on));
+  $('#libraryBottombar').classList.toggle('hidden', on);
+  $('#selectionBar').classList.toggle('hidden', !on);
+  $('#continueRow').classList.toggle('hidden', on || settings.isCompact());
+  updateSelectionBar();
+  refreshLibrary();
+}
+
+function toggleDocSelection(doc) {
+  if (State.selectedIds.has(doc.id)) State.selectedIds.delete(doc.id);
+  else State.selectedIds.add(doc.id);
+  updateSelectionBar();
+  refreshLibrary();
+}
+
+function clearSelection() {
+  State.selectedIds.clear();
+  updateSelectionBar();
+  refreshLibrary();
+}
+
+async function buildMultiExportContent(orderedDocs) {
+  const entries = [];
+  for (const doc of orderedDocs) {
+    const items = await store.listAnnotations(doc.id, { includeExports: false });
+    entries.push({ doc, annotations: items });
+  }
+  const content = annotation.serializeMultiDocumentAnnotations(entries);
+  const bytes = new TextEncoder().encode(content).byteLength;
+  if (bytes > MULTI_EXPORT_MAX_BYTES) {
+    toast(`Combined notes are too large (${formatBytes(bytes)}). Select fewer documents.`);
+    return null;
+  }
+  return content;
+}
+
+function recordMultiExportActivity(orderedDocs) {
+  // Mirrors "Export all .md" (one document, every annotation) — file-activity
+  // / export-requested per document, not a new Journal kind.
+  orderedDocs.forEach((doc) => { journal.recordActivity(doc, 'export-requested').catch(() => {}); });
+}
+
+async function exportSelectedAnnotations(orderedDocs) {
+  const content = await buildMultiExportContent(orderedDocs);
+  if (!content) return;
+  await shareMarkdown(content, annotation.multiAnnotationFileName());
+  toast('Markdown ready.');
+  recordMultiExportActivity(orderedDocs);
+  setSelectMode(false);
+}
+
+async function copySelectedMarkdown(orderedDocs) {
+  const content = await buildMultiExportContent(orderedDocs);
+  if (!content) return;
+  try {
+    await navigator.clipboard.writeText(content);
+  } catch {
+    toast('Could not copy — try Export selected .md instead.');
+    return;
+  }
+  toast('Markdown copied.');
+  recordMultiExportActivity(orderedDocs);
+  setSelectMode(false);
+}
+
+function openExportSelectedSheet() {
+  const selected = State.docs.filter((doc) => State.selectedIds.has(doc.id));
+  if (!selected.length) return;
+  if (selected.length > MULTI_EXPORT_MAX_DOCS) {
+    toast(`Select up to ${MULTI_EXPORT_MAX_DOCS} documents at a time.`);
+    return;
+  }
+  const ordered = [...selected].sort((a, b) => (a.title || a.fileName || '').localeCompare(b.title || b.fileName || ''));
+
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'Export selected .md' }));
+    panel.appendChild(el('p', { class: 'small muted', text: 'Reorder with the arrows. A document with no notes is still included, marked "No annotations."' }));
+    const list = el('div', { class: 'annotation-list' });
+
+    function renderOrder() {
+      clear(list);
+      ordered.forEach((doc, index) => {
+        const label = doc.title || doc.fileName || 'Untitled';
+        const item = el('article', { class: 'annotation-item' });
+        item.appendChild(el('div', { text: label }));
+        item.appendChild(el('div', { class: 'row' }, [
+          el('button', {
+            type: 'button', text: '↑ Up', 'aria-label': `Move ${label} up`, disabled: index === 0,
+            onclick: () => { [ordered[index - 1], ordered[index]] = [ordered[index], ordered[index - 1]]; renderOrder(); },
+          }),
+          el('button', {
+            type: 'button', text: '↓ Down', 'aria-label': `Move ${label} down`, disabled: index === ordered.length - 1,
+            onclick: () => { [ordered[index + 1], ordered[index]] = [ordered[index], ordered[index + 1]]; renderOrder(); },
+          }),
+        ]));
+        list.appendChild(item);
+      });
+    }
+    renderOrder();
+    panel.appendChild(list);
+
+    panel.appendChild(el('div', { class: 'row' }, [
+      el('button', { class: 'primary grow', type: 'button', text: 'Export selected .md', onclick: () => { close(); exportSelectedAnnotations(ordered); } }),
+      el('button', { type: 'button', text: 'Copy Markdown', onclick: () => { close(); copySelectedMarkdown(ordered); } }),
+      el('button', { type: 'button', text: 'Cancel', onclick: () => close() }),
+    ]));
+  });
 }
 
 async function refreshContinue() {
@@ -1334,6 +1464,10 @@ function wire() {
     settings.set('sort', picked);
     refreshLibrary();
   });
+
+  $('#btnSelectMode').addEventListener('click', () => setSelectMode(!State.selectMode));
+  $('#btnSelectClear').addEventListener('click', clearSelection);
+  $('#btnSelectNext').addEventListener('click', openExportSelectedSheet);
 
   $('#btnTypeFilter').addEventListener('click', () => {
     const selected = settings.get('typeFilter');

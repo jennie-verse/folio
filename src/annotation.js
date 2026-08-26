@@ -119,23 +119,71 @@ export function serializeAnnotationMarkdown(annotation, doc, { exportedAt = new 
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
-export function serializeDocumentAnnotations(annotations, doc, { exportedAt = new Date().toISOString() } = {}) {
+// Shared by the single-document export and the multi-document (Export
+// selected) export below, so both stay in the same order and format.
+// `headingLevel` is 1 for a standalone file (the document gets an `#` title)
+// and 2 when the document is one of several sections in a combined file
+// (the document gets a `##` heading, so its own Highlight/Note entries drop
+// to `###` and stay nested under it).
+function documentAnnotationLines(annotations, doc, { headingLevel = 1 } = {}) {
   const active = (annotations || []).filter((item) => !item.deletedAt && item.kind !== 'exported-excerpt');
-  const lines = [
+  const docHeading = '#'.repeat(headingLevel);
+  const itemHeading = '#'.repeat(headingLevel + 1);
+  const title = normalize(doc?.title || doc?.fileName || 'Untitled');
+  const lines = [`${docHeading} ${title}${headingLevel === 1 ? ' — Folio notes' : ''}`, ''];
+  if (!active.length) {
+    // Decision (folio multi-export plan): a selected document with no
+    // annotations still gets its heading, plus this line, rather than being
+    // silently dropped — so `document_count`/`documents` in the frontmatter
+    // always matches what actually appears in the body.
+    lines.push('_No annotations._', '');
+  } else {
+    active.forEach((item) => {
+      const label = item.kind === 'note' ? 'Note' : 'Highlight';
+      lines.push(`${itemHeading} ${label}${item.locator?.locationLabel ? ` · ${item.locator.locationLabel}` : ''}`, '');
+      if (item.quote) lines.push(quoteMarkdown(item.quote), '');
+      if (item.note) lines.push(item.note, '');
+    });
+  }
+  return { lines, count: active.length };
+}
+
+export function serializeDocumentAnnotations(annotations, doc, { exportedAt = new Date().toISOString() } = {}) {
+  const { lines: body, count } = documentAnnotationLines(annotations, doc, { headingLevel: 1 });
+  const head = [
     '---', 'app: folio',
     `document: ${yamlString(doc?.title || doc?.fileName || 'Untitled')}`,
     `document_type: ${yamlString(doc?.kind || 'document')}`,
     `exported_at: ${yamlString(exportedAt)}`,
-    `annotation_count: ${active.length}`,
-    '---', '', `# ${normalize(doc?.title || doc?.fileName || 'Untitled')} — Folio notes`, '',
+    `annotation_count: ${count}`,
+    '---', '',
   ];
-  active.forEach((item) => {
-    const label = item.kind === 'note' ? 'Note' : 'Highlight';
-    lines.push(`## ${label}${item.locator?.locationLabel ? ` · ${item.locator.locationLabel}` : ''}`, '');
-    if (item.quote) lines.push(quoteMarkdown(item.quote), '');
-    if (item.note) lines.push(item.note, '');
+  return `${[...head, ...body].join('\n').trimEnd()}\n`;
+}
+
+// Combines several documents' full annotation sets into one Markdown file.
+// `entries` is an ordered array of { doc, annotations } — order is the
+// caller's responsibility (library.js / app.js own the reorder UI).
+export function serializeMultiDocumentAnnotations(entries, { exportedAt = new Date().toISOString() } = {}) {
+  const list = Array.isArray(entries) ? entries : [];
+  const head = [
+    '---', 'app: folio',
+    `exported_at: ${yamlString(exportedAt)}`,
+    `document_count: ${list.length}`,
+    'documents:',
+    ...list.map(({ doc }) => `  - ${yamlString(doc?.title || doc?.fileName || 'Untitled')}`),
+    '---', '',
+  ];
+  const body = [];
+  list.forEach(({ doc, annotations }, index) => {
+    if (index > 0) body.push('');
+    body.push(...documentAnnotationLines(annotations, doc, { headingLevel: 2 }).lines);
   });
-  return `${lines.join('\n').trimEnd()}\n`;
+  return `${[...head, ...body].join('\n').trimEnd()}\n`;
+}
+
+export function multiAnnotationFileName(date = new Date()) {
+  return `folio-notes-${date.toISOString().slice(0, 10)}.md`;
 }
 
 export function annotationFileName(doc, suffix = 'folio-notes', date = new Date()) {

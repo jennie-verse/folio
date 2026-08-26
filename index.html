@@ -40,6 +40,7 @@
         <input id="q" type="search" placeholder="Search documents" aria-label="Search documents" enterkeyhint="search" autocomplete="off">
         <button class="icon" id="btnSort" aria-label="Sort">⇅</button>
         <button class="icon" id="btnTypeFilter" aria-label="Filter by type">⌗</button>
+        <button class="icon" id="btnSelectMode" aria-label="Select documents" aria-pressed="false">☑</button>
       </div>
     </header>
 
@@ -60,11 +61,16 @@
       <div id="libraryState"></div>
     </div>
 
-    <footer class="bottombar">
+    <footer class="bottombar" id="libraryBottombar">
       <button class="primary grow" id="btnImport">Import files</button>
       <button class="icon" id="btnSettings" aria-label="Settings">⚙</button>
       <input class="sr-only" id="filePicker" type="file" multiple aria-hidden="true" tabindex="-1">
       <input class="sr-only" id="reconnectPicker" type="file" aria-hidden="true" tabindex="-1">
+    </footer>
+    <footer class="bottombar hidden" id="selectionBar">
+      <span class="grow small muted" id="selectionCount">0 selected</span>
+      <button class="icon" id="btnSelectClear" aria-label="Clear selection">Clear</button>
+      <button class="primary" id="btnSelectNext" disabled>Export selected .md</button>
     </footer>
   </section>
 

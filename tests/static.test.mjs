@@ -706,3 +706,37 @@ test("no trace of the withdrawn vault import remains", () => {
     assert.doesNotMatch(read(path), /Import from vault|migrate-vault/i, `${path} must not mention vault migration`);
   });
 });
+
+test("ordinary Sync never references annotation quote/note text, including after the multi-export feature", () => {
+  // sync.js / sync-runner.js sync document metadata only. If either ever
+  // starts touching annotation fields, this must fail loudly rather than
+  // let quote/note text slip into the metadata-only Sync payload.
+  const sync = read("src/sync.js");
+  const syncRunner = read("src/sync-runner.js");
+  for (const source of [sync, syncRunner]) {
+    assert.doesNotMatch(source, /\bquote\b/);
+    assert.doesNotMatch(source, /annotations?\b/i);
+    assert.doesNotMatch(source, /\.note\b/);
+  }
+});
+
+test("multi-document export reuses the existing excerpt-exported/file-activity Journal path and adds no new kind", () => {
+  const journalRecord = read("src/journal-record.js");
+  const shared = readFileSync(join(root, "..", "shared", "v2", "journal.js"), "utf8");
+  const folioKinds = /folio:\s*\[([^\]]*)\]/.exec(shared)?.[1] || "";
+  const declaredKinds = folioKinds.split(",").map((s) => s.trim().replace(/['"]/g, "")).filter(Boolean);
+  assert.deepEqual(declaredKinds.sort(), [
+    "file-activity", "excerpt-exported", "highlight-created", "highlight-updated", "note-created", "note-updated",
+  ].sort(), "the shared contract's folio kind list must be unchanged by this feature");
+  const app = read("src/app.js");
+  assert.match(app, /recordMultiExportActivity/, "the new export path must exist");
+  assert.match(app, /journal\.recordActivity\(doc, 'export-requested'\)/, "it must reuse the existing export-requested action, not invent a new one");
+});
+
+test("the 50-document / 5MB multi-export guardrails are present and surfaced to the user, not silent", () => {
+  const app = read("src/app.js");
+  assert.match(app, /MULTI_EXPORT_MAX_DOCS\s*=\s*50/);
+  assert.match(app, /MULTI_EXPORT_MAX_BYTES\s*=\s*5\s*\*\s*1024\s*\*\s*1024/);
+  assert.match(app, /Select up to \$\{MULTI_EXPORT_MAX_DOCS\} documents/);
+  assert.match(app, /Combined notes are too large/);
+});
