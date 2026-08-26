@@ -720,14 +720,12 @@ test("ordinary Sync never references annotation quote/note text, including after
   }
 });
 
-test("multi-document export reuses the existing excerpt-exported/file-activity Journal path and adds no new kind", () => {
+test("multi-document export reuses the existing file-activity/export-requested Journal path and adds no new kind", () => {
+  // shared/ is a sibling repository checked out separately in CI, so this
+  // only asserts what folio's own source guarantees: no new Journal kind
+  // constant is introduced here. shared's own test suite guards its kind list.
   const journalRecord = read("src/journal-record.js");
-  const shared = readFileSync(join(root, "..", "shared", "v2", "journal.js"), "utf8");
-  const folioKinds = /folio:\s*\[([^\]]*)\]/.exec(shared)?.[1] || "";
-  const declaredKinds = folioKinds.split(",").map((s) => s.trim().replace(/['"]/g, "")).filter(Boolean);
-  assert.deepEqual(declaredKinds.sort(), [
-    "file-activity", "excerpt-exported", "highlight-created", "highlight-updated", "note-created", "note-updated",
-  ].sort(), "the shared contract's folio kind list must be unchanged by this feature");
+  assert.doesNotMatch(journalRecord, /['"]excerpt-batch['"]|['"]multi-export['"]|['"]bundle-exported['"]/, "no new Journal kind for the combined export");
   const app = read("src/app.js");
   assert.match(app, /recordMultiExportActivity/, "the new export path must exist");
   assert.match(app, /journal\.recordActivity\(doc, 'export-requested'\)/, "it must reuse the existing export-requested action, not invent a new one");
