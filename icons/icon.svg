@@ -1,17 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="folio">
-  <title>folio</title>
-
-  <!-- Background — Rose Tint #FBE4EA, flat. Square corners: iOS masks them itself. -->
-  <rect width="512" height="512" fill="#FBE4EA"/>
-
-  <!-- Two leaves, offset up-left / down-right. The front one carries a
-       background-coloured stroke, so the overlap still reads as two separate
-       sheets at 40px. The visible band of the back sheet is 58/512 (~11%)
-       — below roughly 8% it collapses into one blob at icon size. -->
-  <rect x="184" y="116" width="150" height="210" rx="12" fill="#EFB3C1"/>
-  <rect x="248" y="180" width="150" height="210" rx="12" fill="#EFB3C1"
-        stroke="#FBE4EA" stroke-width="12"/>
-
-  <!-- keep line — the same mark the document list uses on the left edge. -->
-  <rect x="108" y="136" width="32" height="240" rx="16" fill="#8A4257"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#FDFBF5"/>
+  <rect x="184" y="116" width="150" height="210" rx="12" fill="#BFE0F0"/>
+  <rect x="248" y="180" width="150" height="210" rx="12" fill="#FBC9D2" stroke="#FDFBF5" stroke-width="12"/>
+  <rect x="108" y="136" width="28" height="240" rx="14" fill="#45283A"/>
 </svg>
