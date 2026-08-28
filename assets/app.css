@@ -1,6 +1,6 @@
 /* folio — app stylesheet.
    Design tokens follow Folio_Design_Concepts_2026-08-12.md, which follows
-   webapp-standard.md. Every colour lives here; nothing is set from HTML
+   WebApp_House_Style.md. Every colour lives here; nothing is set from HTML
    style attributes because the shell CSP is style-src 'self'. */
 
 @font-face{font-family:'Lexend';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/lexend-400.woff2') format('woff2')}
