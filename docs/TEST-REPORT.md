@@ -7,7 +7,7 @@
 
 빌드 `2026.08.12-init1` · 검토일 2026-08-12 · 검토자 Claude Code (자체 검토)
 
-기준 문서: `webapp-standard.md` 10장 · 계획서 12장 ·
+기준 문서: `WebApp_House_Style.md` 10장 · 계획서 12장 ·
 `Folio_Build_Brief_2026-08-12.md` 5장
 
 **검토 환경** — macOS · Chromium 기반 미리보기 창 · 로컬 정적 서버
