@@ -214,13 +214,65 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 }
 pre.plain.nowrap{white-space:pre;overflow-x:auto}
 .doctext img{max-width:100%;height:auto}
-.doctext table{border-collapse:collapse;max-width:100%}
-.doctext th,.doctext td{border:1px solid var(--line);padding:4px 8px;text-align:left}
+.tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 10px;border-radius:var(--radius)}
+.doctext table{border-collapse:collapse;min-width:100%;width:max-content}
+.doctext th,.doctext td{border:1px solid var(--line);padding:4px 8px;text-align:left;white-space:normal;word-break:keep-all}
+.doctext thead th{position:sticky;top:0;background:var(--card);z-index:1}
+.doctext tbody tr:nth-child(even){background:var(--rose-tint)}
+html[data-theme="dark"] .doctext tbody tr:nth-child(even){background:rgba(255,255,255,.04)}
 .doctext code{background:var(--rose-tint);border-radius:4px;padding:0 3px}
 .doctext pre code{background:transparent;padding:0}
-.doctext blockquote{margin:0 0 0 8px;padding-left:10px;border-left:3px solid var(--line);color:var(--text-2)}
+.doctext blockquote{margin:0 0 10px;padding:2px 10px;border-left:3px solid var(--line);color:var(--text-2)}
+/* Source ledger, 전제 지식, 다른 관점 and 원문 read as four different kinds of
+   aside (Plan/folio_bsb-reading-plan D항) — folio's own tints only, no new
+   colour values. */
+.doctext blockquote.bq-ledger{border-left-color:var(--text-3)}
+.doctext blockquote.bq-ledger.bq-alert{border-left-color:var(--danger);color:var(--text)}
+.doctext blockquote.bq-prereq{background:var(--t-page);border-left-color:var(--rose-ink)}
+html[data-theme="dark"] .doctext blockquote.bq-prereq{background:rgba(185,216,238,.12)}
+.doctext blockquote.bq-altview{background:var(--t-fixed);border-left-color:var(--rose-ink)}
+html[data-theme="dark"] .doctext blockquote.bq-altview{background:rgba(228,215,192,.12)}
+.doctext blockquote.bq-quote{border-left-color:var(--rose);font-style:italic}
 .doctext a{color:var(--rose-ink)}
 html[data-theme="dark"] .doctext a{color:var(--rose)}
+
+/* Rank tags — [load-bearing] / [supporting] / [skippable] — as a small chip
+   wherever BSB writes them (headings, Key terms table). Three steps by fill
+   inversion, not by hue, so they still read in greyscale (project review
+   criteria: 색 외의 상태 단서). */
+.rank-chip{
+  display:inline-block;font-size:var(--fs-small);font-weight:700;line-height:1;
+  padding:3px 6px;border-radius:6px;margin:0 2px;vertical-align:1px;
+  white-space:nowrap;
+}
+.rank-chip.rank-load-bearing{background:var(--text);color:var(--card)}
+.rank-chip.rank-supporting{background:transparent;color:var(--text);border:1px solid var(--text-2)}
+.rank-chip.rank-skippable{background:var(--line);color:var(--text-2)}
+
+/* Relation diagrams — always a light card, in both themes: the classDef
+   colours a brief specifies assume a light background (Plan D항 §3). */
+.diagram-block{margin:0 0 14px}
+.diagram-placeholder{
+  min-height:120px;display:flex;align-items:center;justify-content:center;
+  border:1px dashed var(--line);border-radius:var(--radius);
+}
+.diagram-frame{
+  background:#FFFFFF;border:1px solid var(--line);border-radius:var(--radius);
+  overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px;cursor:zoom-in;
+}
+.diagram-frame svg{display:block;margin:0 auto;max-width:none}
+.diagram-fallback-note{margin:0 0 4px}
+.diagram-sheet .imgstage{height:60vh;position:relative;overflow:auto;touch-action:pan-x pan-y}
+.diagram-sheet .imgcanvas{position:relative;min-width:1px;min-height:1px;margin-left:auto;margin-right:auto}
+.diagram-sheet .imgcanvas svg{position:absolute;left:50%;top:50%;max-width:none;max-height:none;transform:translate(-50%,-50%);display:block}
+
+/* Contents (TOC) — heading hierarchy via indent, current section highlighted. */
+.toc-menu button{padding-left:calc(12px * var(--level, 1))}
+.toc-menu button[data-level="1"]{--level:1;font-weight:700}
+.toc-menu button[data-level="2"]{--level:2}
+.toc-menu button[data-level="3"]{--level:3;color:var(--text-2)}
+.toc-menu button[data-level="4"]{--level:4;color:var(--text-2);font-size:var(--fs-small)}
+.toc-menu button.toc-current{background:var(--rose-tint);font-weight:700;color:var(--text)}
 
 mark{background:var(--warn);color:var(--status-ink)}
 

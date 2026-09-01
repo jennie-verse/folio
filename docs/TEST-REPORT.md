@@ -1324,3 +1324,42 @@ sample ZIP 3건은 여전히 실기기/fixture가 필요하므로 통과로 세�
 - Journal 본문 포함 설정이 꺼진 상태에서 읽기 세션 제목을 `Folio document`로 비식별화했습니다. 로컬 원장과 이후 backfill 모두 실제 파일명을 노출하지 않습니다.
 - 기존 Journal wiring 테스트에 opt-in 조건과 공통 session item helper 검사를 추가했고 전체 테스트 및 syntax 검사를 다시 통과했습니다.
 - `APP_BUILD`/Service Worker `VERSION`: `2026.09.01-sessionprivacy1`.
+## 2026-09-01 BSB(Bilingual Study Brief) 읽기 지원 — Markdown 다이어그램·표·인용구, HTML Read 강화
+
+계획서: `Plan/folio_bsb-reading-plan/Folio_BSB_Reading_Plan_2026-09-01.md`
+
+### 추가한 것
+
+- **`src/diagram.js`(신규)** — mermaid `flowchart` 문법의 부분집합을 파싱·배치·SVG 렌더링하는 folio 자체 렌더러. 외부 라이브러리(mermaid.js)는 folio 셸 CSP(`style-src 'self'`)와 맞지 않아(실측: CSP 위반 43건, 노드 전부 검게 렌더링, 3.6MB·약 1초 지연) 채택하지 않음 — 사용자 확인 후 경량 자체 렌더러로 결정.
+- **`src/handlers/markdown.js`** — 다이어그램 지연 렌더링(IntersectionObserver)과 확대 보기, 표 가로 스크롤 래퍼, 인용구 4종 스타일(출처/전제지식/다른관점/일반), `[load-bearing]`류 랭크 태그 칩, 목차(Contents) 계층·현재 위치 표시.
+- **`src/handlers/html.js` Read 모드** — `<style>`·인라인 `style=`을 더 이상 통째로 제거하지 않고 보존(색·SVG·`<details>` 상태 유지). 내부 프레임에 `allow-scripts`를 부여하되 folio 자체 스크롤/줌 메신저(`preview.instrument`)만 실행 — 원 문서의 스크립트는 DOMPurify가 이미 전부 제거. 동일 출처 샌드박스 토큰은 어떤 모드에서도 부여하지 않음(기존 원칙 유지). 스크롤 위치 기억·글자 크기 6단계가 HTML Read 모드에도 적용되도록 `src/preview.js`/`preview-host.html`에 줌 브리지 추가.
+
+### 고친 문제 (구현 중 발견)
+
+- **DOMPurify/`pkg.analyze`가 folio 자체 CSP를 위반.** `<style>`을 허용하자, `DOMPurify.sanitize(..., {RETURN_DOM:true})`와 `pkg.analyze()`(둘 다 내부적으로 원본 문자열을 실제 DOM으로 파싱)가 folio 앱 자기 자신의 문서 컨텍스트에서 `style` 속성/태그를 설정하면서 `style-src 'self'` 위반 콘솔 오류를 4건 발생시킴 — 화면에는 아무 영향 없지만 콘솔 오류 0건 원칙 위반. 스크래치 iframe(별도 CSP 없는 문서)으로 우회를 시도했으나 about:blank 프레임은 생성 문서의 CSP를 상속한다는 스펙 때문에 동일하게 재현됨을 실측으로 확인. 최종 해법: `<style>`/`style=`을 실제 DOM 파서에 넘기기 전 문자열 단계에서 자리표시자(`<template data-folio-style-block>`, `data-folio-style-attr`)로 바꿔 두고, 직렬화된 문자열에 대해서만 원래 값으로 되돌림(`extractStyles`/`restoreStyles`, `src/handlers/html.js`) — DOM 속성 설정이 한 번도 일어나지 않으므로 CSP가 검사할 대상 자체가 없음.
+- **`ID_RE`가 화살표 직전의 하이픈까지 노드 ID로 삼킴**(`A-->B`가 `A--`+파싱 불가한 `>B`로 갈라짐) — 음의 전방탐색으로 수정.
+- **모서리(edge)→노드 연결선 절단 계산이 완전한 수평/수직 간선에서 0으로 나눔** — `atan2`/`tan` 대신 ray-vs-box 거리식으로 교체.
+- **간선 라벨 배경이 이웃 노드의 불투명 채우기에 가려 잘려 보임** — 라벨 그룹을 노드 그룹보다 나중에(위에) 그리도록 순서 변경 + 굵은 글씨 전용 측정기 추가.
+
+### 통과 — 자동
+
+`npm run test:syntax` 통과, `npm test` **93/93 통과**(`tests/diagram.test.mjs` 신규 13건 포함).
+
+### 실측 확인 (Playwright, folio 실제 CSP 헤더 재현)
+
+- Read 모드 문서의 `<style>` 색상(`h1` 등)·인라인 SVG·`<details open>` 상태가 실제로 화면에 반영됨을 계산된 스타일로 확인.
+- 스크롤 위치 저장 후 재방문 시 복원됨을 확인(저장값 300 → 복원 300).
+- 스크롤 시 `onScroll`이 실제로 콜백을 호출함을 확인(700까지 스크롤 → 저장값 700 기록).
+- 앱 글자 크기(`--fs-doc`)를 15px→19px로 바꾸면 내부 프레임의 `document.documentElement.style.zoom`이 1.26667로 따라감을 확인.
+- 콘솔 오류 **0건**(즐겨찾기 아이콘 404는 테스트 하네스 자체의 정적 서버 한계이며 folio 코드와 무관).
+
+### 버전
+
+- `src/version.js` `APP_BUILD` / `sw.js` `VERSION`: `2026.09.01-sessionprivacy1` → `2026.09.01-bsbread1`
+
+### Pending — 실기기(iPhone/iPad)에서 확인 필요
+
+- [ ] iPhone/iPad 실제 화면에서 다이어그램 확대 보기(핀치 줌)와 목차(Contents) 시트 동작
+- [ ] 글자 크기 6단계 전 구간에서 표 가로 스크롤·인용구·랭크 칩 레이아웃이 깨지지 않는지
+- [ ] 라이트/다크 테마 모두에서 다이어그램·인용구·랭크 칩 대비가 적절한지
+- [ ] 실제 BSB 산출물(.md/.html)로 처음부터 끝까지 읽기

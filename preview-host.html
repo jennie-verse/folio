@@ -14,11 +14,15 @@ function send(type,data){try{parent.postMessage(Object.assign({protocol:PROTOCOL
 window.addEventListener('message',function(event){var d=event.data;
   if(event.source===parent&&event.origin!=='null'&&d&&d.protocol===PROTOCOL&&d.type==='render'&&typeof d.session==='string'&&typeof d.html==='string'){
     session=d.session;var root=document.getElementById('root');root.textContent='';inner=document.createElement('iframe');
-    inner.setAttribute('title','Imported document');inner.setAttribute('sandbox',d.allowScripts?'allow-scripts allow-modals allow-forms allow-downloads allow-popups':'allow-downloads');
+    inner.setAttribute('title','Imported document');
+    inner.setAttribute('sandbox',d.innerSandbox||(d.allowScripts?'allow-scripts allow-modals allow-forms allow-downloads allow-popups':'allow-downloads'));
     root.appendChild(inner);inner.srcdoc=d.html;send('host-ready');return;
   }
   if(event.source===parent&&event.origin!=='null'&&inner&&d&&d.protocol===PROTOCOL&&d.session===session&&d.type==='restore'){
     try{inner.contentWindow.postMessage({__folioPreview:1,session:session,type:'restore',y:+d.y||0},'*')}catch(_){}return;
+  }
+  if(event.source===parent&&event.origin!=='null'&&inner&&d&&d.protocol===PROTOCOL&&d.session===session&&d.type==='zoom'){
+    try{inner.contentWindow.postMessage({__folioPreview:1,session:session,type:'zoom',ratio:+d.ratio||1},'*')}catch(_){}return;
   }
   if(inner&&event.source===inner.contentWindow&&event.origin==='null'&&d&&d.__folioPreview===1&&d.session===session&&['ready','scroll','open','open-asset','asset-error','runtime-error'].indexOf(d.type)>=0){send(d.type,d)}
 });

@@ -1,8 +1,27 @@
 /* handlers/html.js — one document, three viewing modes (plan 6-4).
 
      Read (default) — DOMPurify strips scripts, event attributes, <iframe> and
-                      <object>; the result renders in a sandbox with no
-                      allow-scripts, inside preview-host.html's own CSP.
+                      <object>; the result renders in a sandbox inside
+                      preview-host.html's own CSP. `<style>` and inline `style`
+                      attributes survive (2026-09-01, Plan/folio_bsb-reading-plan
+                      F항) — a self-contained styled document (inline SVG
+                      diagrams, coloured sections) reads as it was built to,
+                      not stripped to plain text. This is safe with no
+                      allowlist of "safe" CSS: the frame's own injected CSP
+                      (sanitizeDocument, below) blocks every network-capable
+                      CSS feature outright (style-src carries no host, only
+                      'unsafe-inline'; img/font-src are data: only; connect-src
+                      is 'none'), so a CSS `url(…)` pointed at a remote host
+                      anywhere in the document's CSS fails at the browser's
+                      CSP layer even
+                      though DOMPurify never inspected it. The inner frame also
+                      gets allow-scripts now, but ONLY to run folio's own
+                      scroll-position/zoom messenger (preview.instrument(),
+                      injected after sanitizing) — never the document's own
+                      code, which DOMPurify has already deleted outright by
+                      forbidding the `script` tag. The same-origin sandbox
+                      token is never granted, in any mode (tests/static.test
+                      .mjs greps the whole tree for it).
      Run            — the vault engine, off until the user turns it on per
                       document. connect-src 'none', memory-backed storage,
                       remote JavaScript blocked.
@@ -21,17 +40,25 @@ export const kinds = ['html', 'html-package'];
 const PURIFY_DOCUMENT = {
   WHOLE_DOCUMENT: true,
   RETURN_DOM: true,
+  // 'style' stays forbidden here — DOMPurify never sees a real <style> tag or
+  // style="" attribute at all; extractStyles() below swaps both out for inert
+  // placeholders before sanitizing, and restoreStyles() puts them back on the
+  // serialized string afterwards. See the note above extractStyles for why.
   FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'base', 'link', 'meta', 'source', 'picture', 'video', 'audio', 'track'],
   ALLOW_DATA_ATTR: false,
-  // Data attributes are off, but this one is folio's own marker for a link
-  // that points inside the package, so it is allowed back in by name.
-  ADD_ATTR: ['data-folio-path'],
+  // Data attributes are off, but these are folio's own markers — the link
+  // that points inside a package, and the two style placeholders below — so
+  // they're allowed back in by name.
+  ADD_ATTR: ['data-folio-path', 'data-folio-style-block', 'data-folio-style-attr'],
 };
 
 export async function extractText(blob, doc) {
   if (doc && doc.kind === 'html-package') return { text: '', patch: {} };
   const decoded = await decodeBlob(blob, doc && doc.encoding);
-  const parsed = new DOMParser().parseFromString(decoded.text, 'text/html');
+  // Same reason as pkg.analyze() below: a style block/attribute reaching
+  // DOMParser here sets it for real, under folio's own CSP. Only title/body
+  // text is read back, so the placeholder swap costs nothing.
+  const parsed = new DOMParser().parseFromString(extractStyles(decoded.text).html, 'text/html');
   return {
     text: `${parsed.title || ''}\n${parsed.body ? parsed.body.textContent : ''}`,
     patch: { encoding: decoded.encoding },
@@ -59,11 +86,71 @@ export function packageAssetsMissing(doc, assets) {
   return Boolean(doc.packageAssetsReleased) || Number(doc.packageFileCount) > 1;
 }
 
+/* DOMPurify (RETURN_DOM + WHOLE_DOCUMENT) has to build real DOM nodes to walk
+   and serialize the document. If any of those nodes carried a real `<style>`
+   tag or a real style="" attribute, the moment DOMPurify's parser sets it,
+   the browser enforces folio's OWN shell CSP (style-src 'self') against it —
+   as pure console noise, since none of this ever attaches to the visible
+   page — because that DOM belongs to folio's own document, the one the shell
+   CSP governs. (A scratch iframe doesn't dodge this: an unnavigated
+   same-origin frame inherits its creator's CSP by spec, precisely to close
+   off this kind of workaround.) The only way to keep the parser from ever
+   seeing a real style attribute or tag is to not give it one: extractStyles
+   swaps each for an inert numbered placeholder as plain text BEFORE
+   sanitizing (a `<template data-folio-style-block>` for a `<style>` block,
+   a `data-folio-style-attr` marker for a style="" attribute — 'template' is
+   valid metadata content, so a block that was inside <head> stays there);
+   restoreStyles swaps the placeholders back on the SERIALIZED STRING
+   afterwards. Pure text substitution, before and after — nothing is ever
+   DOM-attribute-set under folio's CSP, so there is nothing for it to catch.
+   What comes out the other end is identical to what DOMPurify would have
+   produced had it been allowed to carry style content through directly. */
+const STYLE_BLOCK_RE = /<style\b([^>]*)>([\s\S]*?)<\/style\s*>/gi;
+const TAG_OPEN_RE = /<([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[^<>]*)?)(\/?)>/g;
+const STYLE_ATTR_RE = /(\sstyle\s*=\s*)("([^"]*)"|'([^']*)')/i;
+
+function extractStyles(html) {
+  const styleBlocks = [];
+  const styleAttrs = [];
+  let out = html.replace(STYLE_BLOCK_RE, (match, attrs, content) => {
+    const id = styleBlocks.length;
+    styleBlocks.push({ attrs, content });
+    return `<template data-folio-style-block="${id}"></template>`;
+  });
+  out = out.replace(TAG_OPEN_RE, (tag, name, attrPart) => {
+    if (!attrPart || !STYLE_ATTR_RE.test(attrPart)) return tag;
+    const id = styleAttrs.length;
+    let value = '';
+    const newAttrPart = attrPart.replace(STYLE_ATTR_RE, (m, pre, quoted, dq, sq) => {
+      value = dq !== undefined ? dq : sq;
+      return '';
+    });
+    styleAttrs.push(value);
+    return tag.replace(attrPart, `${newAttrPart} data-folio-style-attr="${id}"`);
+  });
+  return { html: out, styleBlocks, styleAttrs };
+}
+
+function restoreStyles(html, styleBlocks, styleAttrs) {
+  let out = html.replace(/<template\s+data-folio-style-block="(\d+)"[^>]*>\s*<\/template>/gi, (match, idStr) => {
+    const entry = styleBlocks[Number(idStr)];
+    if (!entry) return '';
+    return `<style${entry.attrs}>${entry.content}</style>`;
+  });
+  out = out.replace(/\s*data-folio-style-attr="(\d+)"/gi, (match, idStr) => {
+    const value = styleAttrs[Number(idStr)];
+    if (value === undefined) return '';
+    return ` style="${value.replace(/"/g, '&quot;')}"`;
+  });
+  return out;
+}
+
 /** Read mode markup. DOMPurify returns a DOM tree; `outerHTML` only reads it
     back for the sandbox's srcdoc — no markup is ever assigned to an element.
     Exported so the review can assert on the exact string Read mode renders. */
 export function sanitizeDocument(source) {
-  const root = window.DOMPurify.sanitize(source, PURIFY_DOCUMENT);
+  const { html: doctored, styleBlocks, styleAttrs } = extractStyles(source);
+  const root = window.DOMPurify.sanitize(doctored, PURIFY_DOCUMENT);
   root.querySelectorAll('[src],[srcset],[poster],[background]').forEach((node) => {
     node.removeAttribute('src');
     node.removeAttribute('srcset');
@@ -74,10 +161,17 @@ export function sanitizeDocument(source) {
   if (head) {
     const csp = document.createElement('meta');
     csp.setAttribute('http-equiv', 'Content-Security-Policy');
-    csp.setAttribute('content', "default-src 'none'; img-src data:; style-src 'none'; font-src 'none'; media-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'");
+    // style-src carries no host — only 'unsafe-inline' — so a <style> block
+    // or a style="" attribute renders, but any url(…) pointed at a remote
+    // host inside one
+    // fails at this layer even though DOMPurify never inspected CSS text.
+    // script-src 'unsafe-inline' exists solely so folio's own instrumentation
+    // (injected AFTER this sanitize, never before) can run; the document's
+    // own <script> tags are already gone by the time this string is built.
+    csp.setAttribute('content', "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'none'; media-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'");
     head.prepend(csp);
   }
-  return `<!DOCTYPE html>\n${root.outerHTML}`;
+  return restoreStyles(`<!DOCTYPE html>\n${root.outerHTML}`, styleBlocks, styleAttrs);
 }
 
 export async function render(ctx) {
@@ -107,7 +201,13 @@ export async function render(ctx) {
     return { tools: [], destroy() {} };
   }
 
-  const analysis = pkg.analyze(source);
+  // pkg.analyze only reads src/href/script/link attributes — the style
+  // content itself is irrelevant to it, so it gets the same style-stripped
+  // string sanitizeDocument uses. Feeding it the raw source, unstripped,
+  // makes ITS internal DOMParser().parseFromString() set a real style
+  // attribute/tag too, tripping folio's shell CSP the same way (see the note
+  // above extractStyles).
+  const analysis = pkg.analyze(extractStyles(source).html);
   const wrapper = el('div', { class: 'framewrap' });
   const noticeHost = el('div');
   const stage = el('div', { class: 'framewrap' });
@@ -132,6 +232,21 @@ export async function render(ctx) {
   let issues = [];
   let mode = isPackage ? 'run' : 'read';
   const buttons = {};
+
+  // Read mode's zoom follows the app's own text-size steps (settings.js /
+  // app.js DOC_STEPS), which live on the OUTER document as --fs-doc — a var
+  // that cannot cross the sandboxed iframe boundary on its own. Watching it
+  // here and relaying through preview.mount().setZoom() is the bridge.
+  let zoomObserver = null;
+  function currentZoomRatio() {
+    const px = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--fs-doc'), 10) || 15;
+    return px / 15; // 15px is the app's own default doc size (DOC_STEPS[4])
+  }
+  function watchZoom() {
+    zoomObserver?.disconnect();
+    zoomObserver = new MutationObserver(() => { if (mounted && mode === 'read') mounted.setZoom(currentZoomRatio()); });
+    zoomObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+  }
 
   function addIssue(kind, message, severity) {
     const clean = String(message || '').slice(0, 300);
@@ -159,6 +274,8 @@ export async function render(ctx) {
   }
 
   function unmount() {
+    zoomObserver?.disconnect();
+    zoomObserver = null;
     if (mounted) { mounted.destroy(); mounted = null; }
     clear(stage);
     clear(noticeHost);
@@ -185,16 +302,24 @@ export async function render(ctx) {
       ? pkg.materialize({ content: source, packageAssets: assets, entryPath: doc.entryPath || 'index.html' }, session, '', '').html
       : source;
     const state = await ctx.readingState();
+    // sanitize FIRST — every original <script> is deleted by DOMPurify — then
+    // inject folio's own instrumentation, which never passes through
+    // DOMPurify at all and is the only script the inner frame will ever hold.
+    const sanitized = preview.ensureViewport(sanitizeDocument(readSource));
+    const instrumented = preview.injectHead(sanitized, preview.instrument(session));
     mounted = preview.mount(stage, {
-      html: preview.ensureViewport(sanitizeDocument(readSource)),
+      html: instrumented,
       session,
       allowScripts: false,
+      innerSandbox: preview.INNER_SANDBOX_READ_SCRIPTED,
       title: doc.title,
       restoreY: state.scrollY || 0,
       onScroll: (y) => ctx.saveReading({ scrollY: y }),
       onOpen: (url) => ctx.openExternal(url),
       onOpenAsset: (path) => ctx.openAsset(path),
     });
+    watchZoom();
+    mounted.setZoom(currentZoomRatio());
   }
 
   function buildRunHtml(session) {

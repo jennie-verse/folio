@@ -14,11 +14,24 @@ const PROTOCOL = 'folio-preview-v1';
 /* These are the OUTER host frame's tokens. preview-host.html needs
    allow-scripts to run its own eight-line bootstrap; the document itself goes
    into a second, nested iframe whose sandbox is chosen by the host from
-   `allowScripts`, and in Read mode that inner frame has no allow-scripts at
-   all. A nested iframe can never hold a capability its parent lacks, so the
-   outer list is the ceiling and stays as narrow as each mode needs. */
+   `innerSandbox` (see below) — in plain Read mode that inner frame has no
+   allow-scripts at all; in Run mode it has the full set. A nested iframe can
+   never hold a capability its parent lacks, so the outer list is the ceiling
+   and stays as narrow as each mode needs. */
 export const SANDBOX_RUN = 'allow-scripts allow-modals allow-forms allow-downloads allow-popups';
 export const SANDBOX_READ = 'allow-scripts allow-downloads';
+
+/* The INNER frame's sandbox — the one actually holding the document. Run
+   gets the full set; plain Read gets nothing (today's default for a document
+   whose HTML failed the instrumented path for any reason); instrumented Read
+   gets allow-scripts ONLY, for one purpose — running folio's own scroll/zoom
+   messenger (instrument(), below), never the document's own code. That is
+   safe specifically because DOMPurify's WHOLE_DOCUMENT sanitize forbids the
+   `script` tag outright (handlers/html.js's PURIFY_DOCUMENT), so nothing of
+   the original document survives to run even though the frame now can. */
+export const INNER_SANDBOX_RUN = SANDBOX_RUN;
+export const INNER_SANDBOX_READ_PLAIN = 'allow-downloads';
+export const INNER_SANDBOX_READ_SCRIPTED = 'allow-scripts allow-downloads';
 
 /* An opaque origin makes window.localStorage THROW SecurityError, which kills
    a document's script on its first line and leaves every button in it dead.
@@ -30,7 +43,7 @@ export const STORAGE_SHIM = '<scr' + 'ipt>(function(){function mk(){var m=Object
    of <head> so it also catches failures thrown by the document's own head
    scripts — appending it at </body> misses those entirely. */
 export function instrument(session) {
-  return '<scr' + 'ipt>(function(){var S=' + JSON.stringify(session) + ';function p(t,d){try{parent.postMessage(Object.assign({__folioPreview:1,session:S,type:t},d||{}),"*")}catch(e){}}function s(){p("scroll",{y:(window.scrollY||document.documentElement.scrollTop||0)})}window.addEventListener("error",function(e){p("runtime-error",{message:e.message||"Preview runtime error"})},true);window.addEventListener("unhandledrejection",function(e){var v=e.reason;p("runtime-error",{message:v&&v.message||String(v||"Unhandled promise rejection")})});var r;window.addEventListener("scroll",function(){if(r)cancelAnimationFrame(r);r=requestAnimationFrame(s)},{passive:true});window.addEventListener("message",function(e){var d=e.data;if(d&&d.__folioPreview===1&&d.session===S&&d.type==="restore"){try{window.scrollTo(0,d.y||0)}catch(x){}}});document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var raw=a.getAttribute("href")||"";var inPkg=a.getAttribute("data-folio-path");if(inPkg){e.preventDefault();p("open-asset",{path:inPkg});return}if(raw.charAt(0)==="#"){e.preventDefault();var f=raw.slice(1),id=f;try{id=decodeURIComponent(f)}catch(x){}var target=id?document.getElementById(id):document.documentElement;if(!target&&id){var named=document.getElementsByName(id);target=named&&named[0]}if(target){try{target.scrollIntoView({block:"start"})}catch(x){target.scrollIntoView()}s()}return}if(a.hasAttribute("download"))return;var u=a.href||raw,pcol=(a.protocol||"").toLowerCase();if(pcol==="http:"||pcol==="https:"||pcol==="mailto:"||pcol==="tel:"||pcol==="sms:"){e.preventDefault();p("open",{url:u})}else if(/^javascript:/i.test(raw)){e.preventDefault();p("runtime-error",{message:"javascript: links are blocked"})}},true);function rdy(){p("ready")}if(document.readyState==="complete")rdy();else window.addEventListener("load",rdy);})();<\/scr' + 'ipt>';
+  return '<scr' + 'ipt>(function(){var S=' + JSON.stringify(session) + ';function p(t,d){try{parent.postMessage(Object.assign({__folioPreview:1,session:S,type:t},d||{}),"*")}catch(e){}}function s(){p("scroll",{y:(window.scrollY||document.documentElement.scrollTop||0)})}window.addEventListener("error",function(e){p("runtime-error",{message:e.message||"Preview runtime error"})},true);window.addEventListener("unhandledrejection",function(e){var v=e.reason;p("runtime-error",{message:v&&v.message||String(v||"Unhandled promise rejection")})});var r;window.addEventListener("scroll",function(){if(r)cancelAnimationFrame(r);r=requestAnimationFrame(s)},{passive:true});window.addEventListener("message",function(e){var d=e.data;if(!d||d.__folioPreview!==1||d.session!==S)return;if(d.type==="restore"){try{window.scrollTo(0,d.y||0)}catch(x){}}else if(d.type==="zoom"){try{document.documentElement.style.zoom=String(d.ratio||1)}catch(x){}}});document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var raw=a.getAttribute("href")||"";var inPkg=a.getAttribute("data-folio-path");if(inPkg){e.preventDefault();p("open-asset",{path:inPkg});return}if(raw.charAt(0)==="#"){e.preventDefault();var f=raw.slice(1),id=f;try{id=decodeURIComponent(f)}catch(x){}var target=id?document.getElementById(id):document.documentElement;if(!target&&id){var named=document.getElementsByName(id);target=named&&named[0]}if(target){try{target.scrollIntoView({block:"start"})}catch(x){target.scrollIntoView()}s()}return}if(a.hasAttribute("download"))return;var u=a.href||raw,pcol=(a.protocol||"").toLowerCase();if(pcol==="http:"||pcol==="https:"||pcol==="mailto:"||pcol==="tel:"||pcol==="sms:"){e.preventDefault();p("open",{url:u})}else if(/^javascript:/i.test(raw)){e.preventDefault();p("runtime-error",{message:"javascript: links are blocked"})}},true);function rdy(){p("ready")}if(document.readyState==="complete")rdy();else window.addEventListener("load",rdy);})();<\/scr' + 'ipt>';
 }
 
 /** Insert at the very top of <head> so shims run before any document script. */
@@ -68,8 +81,8 @@ export function newSession() {
  * HTML carries no instrumentation may leave it out.
  *
  * @param {HTMLElement} container element the iframe is appended to
- * @param {object} options {html, session, allowScripts, title, restoreY, onIssue, onScroll, onOpen, onOpenAsset}
- * @returns {{destroy:Function, frame:HTMLIFrameElement, session:string}}
+ * @param {object} options {html, session, allowScripts, innerSandbox, title, restoreY, onIssue, onScroll, onOpen, onOpenAsset}
+ * @returns {{destroy:Function, frame:HTMLIFrameElement, session:string, setZoom:Function}}
  */
 export function mount(container, options) {
   const session = options.session || newSession();
@@ -79,9 +92,10 @@ export function mount(container, options) {
   frame.setAttribute('sandbox', options.allowScripts ? SANDBOX_RUN : SANDBOX_READ);
   frame.title = options.title || 'Document preview';
 
+  const innerSandbox = options.innerSandbox || (options.allowScripts ? INNER_SANDBOX_RUN : INNER_SANDBOX_READ_PLAIN);
   const payload = {
     protocol: PROTOCOL, type: 'render', session,
-    html: options.html, allowScripts: Boolean(options.allowScripts),
+    html: options.html, allowScripts: Boolean(options.allowScripts), innerSandbox,
   };
 
   const seenAssets = new Set();
@@ -127,6 +141,14 @@ export function mount(container, options) {
   return {
     frame,
     session,
+    /** Rescale the mounted document (ratio 1 = the document's own default).
+        Silently a no-op until the inner frame has requested `innerSandbox`
+        with allow-scripts — a plain, un-instrumented Read frame simply never
+        acts on the message. */
+    setZoom(ratio) {
+      const message = { protocol: PROTOCOL, session, type: 'zoom', ratio: Number(ratio) || 1 };
+      try { frame.contentWindow.postMessage(message, '*'); } catch { /* frame gone */ }
+    },
     destroy() {
       window.removeEventListener('message', onMessage);
       frame.remove();
