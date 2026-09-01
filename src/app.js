@@ -58,6 +58,15 @@ const readingSessions = createSessionTracker({
   kind: 'reading-session', itemType: 'document', storageKey: 'folio.journalSessions.v1',
   onRecord: (record) => journal.recordSession(record),
 });
+function readingSessionItem(record) {
+  const contentIncluded = journal.isJournalContentEnabled();
+  return {
+    id: record.id,
+    title: contentIncluded ? (record.title || record.fileName || 'Untitled') : 'Folio document',
+    itemType: record.kind || 'document',
+    contentIncluded,
+  };
+}
 
 // folio multi-export plan: guardrails so a giant combined file can't be
 // built silently — the user is told, not just quietly truncated.
@@ -584,7 +593,7 @@ async function showInViewer(record, blob, { transient = false } = {}) {
     return;
   }
   State.view = view;
-  if (!transient) readingSessions.start({ id: record.id, title: record.title || record.fileName || 'Untitled', itemType: record.kind || 'document', contentIncluded: journal.isJournalContentEnabled() });
+  if (!transient) readingSessions.start(readingSessionItem(record));
 
   const tools = $('#viewerTools');
   clear(tools);
@@ -1611,7 +1620,7 @@ function wire() {
   window.addEventListener('resize', () => { if (State.current) show('viewer'); });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) readingSessions.stop();
-    else if (State.current && !State.transient) readingSessions.start({ id: State.current.id, title: State.current.title || State.current.fileName || 'Untitled', itemType: State.current.kind || 'document', contentIncluded: journal.isJournalContentEnabled() });
+    else if (State.current && !State.transient) readingSessions.start(readingSessionItem(State.current));
   });
   window.addEventListener('pagehide', () => readingSessions.stop());
 }

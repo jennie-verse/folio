@@ -70,6 +70,8 @@ test('actual open, read, import, and export paths are wired without touching ret
   assert.match(app, /openDocument\(parent, \{ journalOpened: false \}\)/);
   assert.match(app, /if \(changed && State\.view/);
   assert.match(app, /await store\.touch\(record\.id\)/, 'existing retention clock remains intact');
+  assert.match(app, /contentIncluded \? \(record\.title \|\| record\.fileName \|\| 'Untitled'\) : 'Folio document'/);
+  assert.match(app, /readingSessions\.start\(readingSessionItem\(record\)\)/);
 });
 
 test('backfillJournal session loop uses the enqueued record date, not an out-of-scope variable', async () => {

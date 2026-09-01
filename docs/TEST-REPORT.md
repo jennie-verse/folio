@@ -1318,3 +1318,9 @@ sample ZIP 3건은 여전히 실기기/fixture가 필요하므로 통과로 세�
 
 - [ ] 문서를 열어 5분 넘게 idle 상태로 두었다가 다시 스크롤/터치했을 때 새 읽기 세션이 실제로 시작되는지
 - [ ] 앱을 background로 보냈다가 한참 뒤 복귀했을 때 하나의 과장된 세션이 아니라 두 개의 세션으로 Daybook에 기록되는지
+
+## 2026-09-01 세션 제목 개인정보 설정 보강
+
+- Journal 본문 포함 설정이 꺼진 상태에서 읽기 세션 제목을 `Folio document`로 비식별화했습니다. 로컬 원장과 이후 backfill 모두 실제 파일명을 노출하지 않습니다.
+- 기존 Journal wiring 테스트에 opt-in 조건과 공통 session item helper 검사를 추가했고 전체 테스트 및 syntax 검사를 다시 통과했습니다.
+- `APP_BUILD`/Service Worker `VERSION`: `2026.09.01-sessionprivacy1`.
