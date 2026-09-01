@@ -173,3 +173,11 @@ ZIP 패키지(`.zip`)는 Run 전용입니다. 실행 중 문제가 생기면 아
 - **Add existing history**는 문서 added 날짜뿐 아니라 저장된 highlight/note의 createdAt·updatedAt도 가져옵니다. 가져온 주석 참조가 보존되어 이후 삭제도 같은 remote record를 정리할 수 있습니다.
 - **Include selected text and note bodies**를 끄면 pending 및 새 record의 quote/note가 제외됩니다. **Remove content**는 선택 기간의 현재 projection만 정제합니다.
 - 90일 파일 metadata activity는 Journal opt-in과 무관하게 로컬에 보관되고 JSON 백업/복원에 포함됩니다. **Clear captured activity**는 문서·주석을 건드리지 않고 이 원장만 지웁니다.
+
+---
+
+## 2026-09-01 업데이트 — 읽기 세션 재개 버그 수정
+
+문서를 열어 두고 5분 넘게 손을 떼었다가(idle) 다시 스크롤하거나 터치하면, 이전에는 그 문서의 읽기 시간이 더 기록되지 않는 버그가 있었습니다. 이번 업데이트로 idle 이후 다시 활동하면 새 읽기 세션이 정상적으로 시작되어 Daybook에 반영됩니다. 문서를 실제로 닫거나 다른 문서로 넘어갈 때만 세션이 완전히 종료됩니다.
+
+또한 Journal 과거 기록 채우기(backfill) 중 세션 원장에 기록이 있으면 오류로 중단되던 문제도 함께 고쳤습니다.

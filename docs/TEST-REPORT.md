@@ -1291,3 +1291,30 @@ sample ZIP 3건은 여전히 실기기/fixture가 필요하므로 통과로 세�
 - [ ] 50개에 가까운 문서를 실제로 골랐을 때 재배치 시트 스크롤이 매끄러운지
 - [ ] 실제 iOS Share Sheet에서 `Export selected .md`가 정상적으로 뜨는지, 미지원 상황에서 다운로드로 정상 대체되는지
 - [ ] `Copy Markdown` 결과를 iOS 메모/Files 붙여넣기 했을 때 한글이 정상 표시되는지
+
+---
+
+## 2026-09-01 — Daybook Markdown Export 후속 수정 (Revision 4)
+
+### 고친 문제
+
+- **[버그] `backfillJournal`의 `ReferenceError`.** `src/journal.js`의 세션 원장 backfill 루프가 `filter` 콜백 안에서만 존재하는 `row`를 콜백 밖 `client.enqueue(...)`에서 참조해, 세션 원장에 기록이 하나라도 있으면 backfill 전체가 예외로 중단되던 문제. `record.at.slice(0, 10)`로 수정.
+- **[버그] 5분 idle 이후 세션이 재개되지 않음.** `src/activity-session.js`의 `stop()`이 `currentItem`까지 지워서, idle heartbeat가 세션을 끝낸 뒤에는 같은 문서를 계속 보고 있어도 새 세션이 시작되지 않던 문제. `stop()`은 세션만 종료하고, 문서를 실제로 닫을 때만 새 `clearItem()`을 `closeViewer()`에서 호출하도록 분리.
+
+### 새로 추가한 테스트
+
+- `tests/activity-session.test.mjs`: idle 경계 종료·activeSeconds 상한, idle 이후 새 session ID로 재개, background 후 재개가 두 세션으로 분리, 항목 전환 시 이전 세션 종료, activeSeconds 0인 세션 미기록, `stop()`과 `clearItem()`의 동작 차이 — 6건 추가.
+- `tests/journal.test.mjs`: backfill 세션 루프가 `record`(루프 변수)를 참조하는지 소스 검사 + 날짜 범위 필터 동작 검증 — 2건 추가.
+
+### 통과 — 자동
+
+`npm test` **80/80 통과**(기존 72건 + 신규 8건), `npm run test:syntax` 통과.
+
+### 버전
+
+- `src/version.js` `APP_BUILD` / `sw.js` `VERSION`: `2026.09.01-journalsession1` → `2026.09.01-sessionfix1`
+
+### Pending — 실기기에서 확인 필요
+
+- [ ] 문서를 열어 5분 넘게 idle 상태로 두었다가 다시 스크롤/터치했을 때 새 읽기 세션이 실제로 시작되는지
+- [ ] 앱을 background로 보냈다가 한참 뒤 복귀했을 때 하나의 과장된 세션이 아니라 두 개의 세션으로 Daybook에 기록되는지

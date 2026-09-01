@@ -292,7 +292,7 @@ export async function backfillJournal(documents, annotations, { from, to }) {
     await client.enqueue(record, { date: localDate(record.at) });
   }
   for (const item of annotationRecords) await client.enqueue(item.record, { date: item.date });
-  for (const record of sessionLedger.read().filter((row) => row.at.slice(0, 10) >= from && row.at.slice(0, 10) <= to)) await client.enqueue(record, { date: row.at.slice(0, 10) });
+  for (const record of sessionLedger.read().filter((row) => row.at.slice(0, 10) >= from && row.at.slice(0, 10) <= to)) await client.enqueue(record, { date: record.at.slice(0, 10) });
   const result = await client.flush();
   await reportStatus({ backfill: {
     status: result.error ? 'partial' : 'complete', from, to,

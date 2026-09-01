@@ -741,7 +741,7 @@ async function flushViewerReading() {
 }
 
 async function closeViewer() {
-  readingSessions.stop();
+  readingSessions.clearItem();
   await flushViewerReading().catch(() => {});
   State.pendingZoom = null;
   State.viewerAbort?.abort();
