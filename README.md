@@ -7,6 +7,10 @@ work offline. HTML documents can be run in an isolated sandbox.
 Static site — no build step, no server, no login. Deployed on GitHub Pages and
 installed through Safari's *Add to Home Screen*.
 
+When Journal is enabled, Folio now records each visible reading session with
+its start/end time and active minutes. The session ledger is included in Folio
+backup/restore and retained for 90 days.
+
 Korean documentation is in [`docs/`](docs/):
 
 | Document | Contents |

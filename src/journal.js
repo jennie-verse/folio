@@ -1,6 +1,7 @@
 import * as sync from './sync.js';
 import { localDate, localIso, mergeFileActivity, projectAnnotation } from './journal-record.js';
 import { webappDataConfig } from './deployment.js';
+import { createSessionLedger } from './activity-session.js';
 
 const ENABLED_KEY = 'folio.journalEnabled.v1';
 const ACTIVITY_KEY = 'folio.journalActivity.v1';
@@ -8,6 +9,7 @@ const CONTENT_KEY = 'folio.journalContent.v1';
 const DELETIONS_KEY = 'folio.journalDeletionQueue.v1';
 let clientPromise = null;
 let lastState = { status: 'not reported', pendingCount: 0, errorCode: '' };
+const sessionLedger = createSessionLedger('folio.journalSessions.v1');
 
 function readItem(key) { try { return localStorage.getItem(key) || ''; } catch { return ''; } }
 function writeItem(key, value) { try { localStorage.setItem(key, value); } catch { /* local app remains usable */ } }
@@ -58,6 +60,10 @@ export function replaceActivityLedger(rows) {
 export function clearActivityLedger() {
   try { localStorage.removeItem(ACTIVITY_KEY); return true; } catch { return false; }
 }
+export const exportSessionLedger = () => sessionLedger.read();
+export const validateSessionLedger = (rows) => sessionLedger.validate(rows);
+export const replaceSessionLedger = (rows, options = {}) => sessionLedger.replace(rows, options);
+export function clearSessionLedger() { try { localStorage.removeItem('folio.journalSessions.v1'); return true; } catch { return false; } }
 
 function deletionQueue() {
   const value = parse(readItem(DELETIONS_KEY), []);
@@ -170,6 +176,20 @@ export async function recordActivity(doc, action, { at = new Date(), importedHis
   }
 }
 
+export async function recordSession(record) {
+  if (!record?.id || record.kind !== 'reading-session') return false;
+  sessionLedger.replace([record], { merge: true });
+  if (!isJournalEnabled()) return false;
+  const client = await getClient();
+  if (!client) return false;
+  try {
+    const module = await import('../../shared/v2/journal.js');
+    if (!module.JOURNAL_KINDS?.folio?.includes('reading-session')) { lastState = { ...lastState, status: 'error', errorCode: 'CONTRACT_STALE' }; return false; }
+    await client.enqueue(record, { date: record.at.slice(0, 10) });
+    return true;
+  } catch { return false; }
+}
+
 export async function recordAnnotation(annotation, doc, event = 'created', { at = new Date() } = {}) {
   if (!annotation?.id || !doc?.id || !isJournalEnabled()) return null;
   const record = projectAnnotation(annotation, doc, event, {
@@ -272,6 +292,7 @@ export async function backfillJournal(documents, annotations, { from, to }) {
     await client.enqueue(record, { date: localDate(record.at) });
   }
   for (const item of annotationRecords) await client.enqueue(item.record, { date: item.date });
+  for (const record of sessionLedger.read().filter((row) => row.at.slice(0, 10) >= from && row.at.slice(0, 10) <= to)) await client.enqueue(record, { date: row.at.slice(0, 10) });
   const result = await client.flush();
   await reportStatus({ backfill: {
     status: result.error ? 'partial' : 'complete', from, to,

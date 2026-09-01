@@ -16,6 +16,7 @@ import * as annotation from './annotation.js';
 import * as pkg from './package.js';
 import { TAG_OF, KINDS, detect } from './detect.js';
 import { APP_BUILD } from './version.js';
+import { createSessionTracker } from './activity-session.js';
 
 import * as textHandler from './handlers/text.js';
 import * as markdownHandler from './handlers/markdown.js';
@@ -53,6 +54,10 @@ const State = {
   selectMode: false,
   selectedIds: new Set(),
 };
+const readingSessions = createSessionTracker({
+  kind: 'reading-session', itemType: 'document', storageKey: 'folio.journalSessions.v1',
+  onRecord: (record) => journal.recordSession(record),
+});
 
 // folio multi-export plan: guardrails so a giant combined file can't be
 // built silently — the user is told, not just quietly truncated.
@@ -579,6 +584,7 @@ async function showInViewer(record, blob, { transient = false } = {}) {
     return;
   }
   State.view = view;
+  if (!transient) readingSessions.start({ id: record.id, title: record.title || record.fileName || 'Untitled', itemType: record.kind || 'document', contentIncluded: journal.isJournalContentEnabled() });
 
   const tools = $('#viewerTools');
   clear(tools);
@@ -735,6 +741,7 @@ async function flushViewerReading() {
 }
 
 async function closeViewer() {
+  readingSessions.stop();
   await flushViewerReading().catch(() => {});
   State.pendingZoom = null;
   State.viewerAbort?.abort();
@@ -758,6 +765,7 @@ async function closeViewer() {
 }
 
 function onViewerScroll() {
+  readingSessions.signal();
   const body = $('#viewerBody');
   const docId = State.current && State.current.id;
   if (State.scrollSaveTimer) clearTimeout(State.scrollSaveTimer);
@@ -773,6 +781,7 @@ function onViewerScroll() {
 }
 
 function markReadOnce() {
+  readingSessions.signal();
   if (!State.current || State.transient || State.journalReadMarked) return;
   State.journalReadMarked = true;
   journal.recordActivity(State.current, 'read').catch(() => {});
@@ -1600,6 +1609,11 @@ function wire() {
 
   window.addEventListener('orientationchange', () => { if (State.current) show('viewer'); });
   window.addEventListener('resize', () => { if (State.current) show('viewer'); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) readingSessions.stop();
+    else if (State.current && !State.transient) readingSessions.start({ id: State.current.id, title: State.current.title || State.current.fileName || 'Untitled', itemType: State.current.kind || 'document', contentIncluded: journal.isJournalContentEnabled() });
+  });
+  window.addEventListener('pagehide', () => readingSessions.stop());
 }
 
 /* ── boot ──────────────────────────────────────────────────────────────── */

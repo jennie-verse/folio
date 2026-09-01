@@ -18,7 +18,7 @@ import { base64, fromBase64, validateManifest } from './package.js';
 import { formatBytes, todayStamp } from './ui.js';
 import { APP_BUILD } from './version.js';
 import * as settings from './settings.js';
-import { exportActivityLedger, replaceActivityLedger, validateActivityLedger } from './journal.js';
+import { exportActivityLedger, replaceActivityLedger, validateActivityLedger, exportSessionLedger, replaceSessionLedger, validateSessionLedger } from './journal.js';
 
 export const FORMAT = 'folio-backup';
 export const SCHEMA_VERSION = 1;
@@ -82,6 +82,7 @@ export async function build() {
     annotations,
     bookmarks,
     journalActivity: exportActivityLedger(),
+    journalSessions: exportSessionLedger(),
     settings: settings.all(),
   };
 
@@ -187,9 +188,12 @@ export function validateAndNormalize(parsed) {
   const journalActivity = parsed.journalActivity === undefined
     ? undefined
     : validateActivityLedger(parsed.journalActivity);
+  const journalSessions = parsed.journalSessions === undefined
+    ? undefined
+    : validateSessionLedger(parsed.journalSessions);
   return {
     documents, documentFiles, packageAssets, docText, readingStates, annotations, bookmarks,
-    journalActivity,
+    journalActivity, journalSessions,
     settings: settings.normalizeBackupSettings(parsed.settings),
   };
 }
@@ -200,6 +204,7 @@ export async function restore(parsed) {
   await replaceFromBackup(normalized);
   settings.restorePortable(normalized.settings);
   if (normalized.journalActivity !== undefined) replaceActivityLedger(normalized.journalActivity);
+  if (normalized.journalSessions !== undefined) replaceSessionLedger(normalized.journalSessions);
   return normalized.documents.length;
 }
 
