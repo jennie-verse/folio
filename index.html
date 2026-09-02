@@ -120,35 +120,6 @@
         </div>
       </section>
 
-      <section class="setgroup" aria-labelledby="hStorage">
-        <h2 id="hStorage">Storage</h2>
-        <div class="setrow">
-          <span class="grow">Retention</span>
-          <div class="seg" id="segRetention" role="group" aria-label="Retention">
-            <button data-days="7">7d</button><button data-days="14">14d</button>
-            <button data-days="30">30d</button><button data-days="0">Never</button>
-          </div>
-        </div>
-        <p class="sethelp">How long an untouched document keeps its local copy. Pinned documents never expire. Text, Markdown, HTML and CSV are always kept.</p>
-        <div class="setrow">
-          <button id="btnReleaseNow">Release expired now</button>
-        </div>
-        <p class="sethelp" id="lastCleanup">Last cleanup: never</p>
-        <h2>Storage</h2>
-        <div class="usebar" id="usageBar" aria-hidden="true"></div>
-        <p class="sethelp" id="usageText">Using 0 B</p>
-      </section>
-
-      <section class="setgroup" aria-labelledby="hBackup">
-        <h2 id="hBackup">Backup</h2>
-        <div class="setrow">
-          <button id="btnExportBackup">Export backup</button>
-          <button id="btnRestoreBackup">Restore from backup</button>
-          <input class="sr-only" id="restorePicker" type="file" accept="application/json,.json" aria-hidden="true" tabindex="-1">
-        </div>
-        <p class="sethelp">Includes your text, Markdown, HTML, CSV and package documents. PDFs and images are listed but not included — keep those originals in Files.</p>
-      </section>
-
       <section class="setgroup" aria-labelledby="hSync">
         <h2 id="hSync">Sync</h2>
         <div class="setrow">
@@ -174,9 +145,9 @@
           <button id="btnJournalTokenSave">Save token</button>
         </div>
         <div class="setrow">
-          <label class="checkrow"><input id="journalContent" type="checkbox"> Include selected text and note bodies</label>
+          <label class="checkrow"><input id="journalContent" type="checkbox"> Include highlight and note bodies</label>
         </div>
-        <p class="sethelp">Journal is separate from Sync and starts off. When enabled, document titles, locations and activity are sent to your private Journal repository. The option above also sends selected text and note bodies so Daybook can include them. Original files, PDF coordinates and document contents are never sent.</p>
+        <p class="sethelp">Journal is separate from Sync and starts off. When enabled, document titles, locations and activity are sent to your private Journal repository. The option above also sends highlighted text and note bodies so Daybook can include them. Original files, PDF coordinates and document contents are never sent.</p>
         <div class="setrow journal-dates">
           <label>From <input id="journalFrom" type="date"></label>
           <label>To <input id="journalTo" type="date"></label>
@@ -187,11 +158,32 @@
         <p class="sethelp">Manual history import recovers document-added dates plus saved highlights and notes. Past opens and reading cannot be reconstructed. Remove content writes newer sanitized records for this date range; older Git commits can still retain the previous text.</p>
       </section>
 
-      <section class="setgroup" aria-labelledby="hDanger">
-        <h2 id="hDanger">Danger</h2>
+      <section class="setgroup" aria-labelledby="hStorage">
+        <h2 id="hStorage">Storage</h2>
         <div class="setrow">
-          <button class="danger" id="btnDeleteAll">Delete all documents</button>
+          <span class="grow">Retention</span>
+          <div class="seg" id="segRetention" role="group" aria-label="Retention">
+            <button data-days="7">7d</button><button data-days="14">14d</button>
+            <button data-days="30">30d</button><button data-days="0">Never</button>
+          </div>
         </div>
+        <p class="sethelp">How long an untouched document keeps its local copy. Pinned documents never expire. Text, Markdown, HTML and CSV are always kept.</p>
+        <div class="setrow">
+          <button id="btnReleaseNow">Release expired now</button>
+        </div>
+        <p class="sethelp" id="lastCleanup">Last cleanup: never</p>
+        <div class="usebar" id="usageBar" aria-hidden="true"></div>
+        <p class="sethelp" id="usageText">Using 0 B</p>
+      </section>
+
+      <section class="setgroup" aria-labelledby="hBackup">
+        <h2 id="hBackup">Backup</h2>
+        <div class="setrow">
+          <button id="btnExportBackup">Export backup</button>
+          <button id="btnRestoreBackup">Restore from backup</button>
+          <input class="sr-only" id="restorePicker" type="file" accept="application/json,.json" aria-hidden="true" tabindex="-1">
+        </div>
+        <p class="sethelp">Includes your text, Markdown, HTML, CSV and package documents. PDFs and images are listed but not included — keep those originals in Files.</p>
       </section>
 
       <section class="setgroup" aria-labelledby="hAbout">
@@ -199,6 +191,13 @@
         <div class="setrow">
           <span class="grow" id="buildLine">Build</span>
           <button id="btnLicences">Licences</button>
+        </div>
+      </section>
+
+      <section class="setgroup" aria-labelledby="hDanger">
+        <h2 id="hDanger">Danger</h2>
+        <div class="setrow">
+          <button class="danger" id="btnDeleteAll">Delete all documents</button>
         </div>
       </section>
 

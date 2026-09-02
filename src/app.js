@@ -1474,7 +1474,7 @@ async function runJournalBackfill() {
 
 async function runJournalRedaction() {
   if (!journal.isJournalEnabled()) { toast('Turn on Include in journal first.'); return; }
-  if (journal.isJournalContentEnabled()) { toast('Turn off selected text and note bodies on every Folio installation first.'); return; }
+  if (journal.isJournalContentEnabled()) { toast('Turn off highlight and note bodies on every Folio installation first.'); return; }
   const from = $('#journalFrom').value;
   const to = $('#journalTo').value;
   if (!from || !to || from > to) { toast('Choose a valid date range.'); return; }
