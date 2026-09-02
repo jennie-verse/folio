@@ -395,13 +395,13 @@ async function togglePin(doc) {
   syncRunner.schedulePush();
 }
 
-function promptText(title, label, value) {
+function promptText(title, label, value, placeholder) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (result) => { if (!settled) { settled = true; resolve(result); } };
     customSheet((panel, close) => {
       panel.appendChild(el('h2', { text: title }));
-      const input = el('input', { type: 'text', value: value || '', 'aria-label': label });
+      const input = el('input', { type: 'text', value: value || '', 'aria-label': label, ...(placeholder ? { placeholder } : {}) });
       panel.appendChild(input);
       // A Korean IME fires Enter once to commit the composition and once to
       // submit; `isComposing` keeps the first one from saving early.
@@ -1424,7 +1424,7 @@ async function toggleJournal() {
     await paintJournalState();
     return;
   }
-  const name = await promptText('Name this journal device', 'Device name', sync.getContextLabel() || '');
+  const name = await promptText('Name this journal device', 'Device name', sync.getContextLabel() || '', 'iphone-home');
   if (name === null) return;
   const result = await journal.toggleJournal(true, name);
   if (!result.ok) toast(result.reason === 'token' ? 'Save an access token in Journal first.' : result.reason === 'status' ? 'Could not reach Daybook — check your connection and try again.' : 'The journal device could not be created.');
@@ -1498,7 +1498,7 @@ async function toggleSync() {
   }
   // The context id is fixed when it is created and ends up in the remote file
   // name, so the device name is asked for BEFORE sync is switched on.
-  const name = await promptText('Name this device', 'Device name', sync.getContextLabel() || '');
+  const name = await promptText('Name this device', 'Device name', sync.getContextLabel() || '', 'iphone-home');
   if (name === null) return;
   try {
     await sync.ensureContext(name);
