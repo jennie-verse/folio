@@ -1427,7 +1427,7 @@ async function toggleJournal() {
   const name = await promptText('Name this journal device', 'Device name', sync.getContextLabel() || '');
   if (name === null) return;
   const result = await journal.toggleJournal(true, name);
-  if (!result.ok) toast(result.reason === 'token' ? 'Save an access token in Journal first.' : 'The journal device could not be created.');
+  if (!result.ok) toast(result.reason === 'token' ? 'Save an access token in Journal first.' : result.reason === 'status' ? 'Could not reach Daybook — check your connection and try again.' : 'The journal device could not be created.');
   else toast('Folio is now included in Daybook.');
   await paintJournalState();
 }

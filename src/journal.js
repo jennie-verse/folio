@@ -139,7 +139,8 @@ export async function toggleJournal(enabled, preferredName = '') {
   writeItem(ENABLED_KEY, enabled ? '1' : '0');
   clientPromise = null;
   lastState = { ...lastState, status: enabled ? 'ready' : 'disabled', errorCode: '' };
-  await reportStatus({ enabledAt: enabled ? localIso() : undefined });
+  const reported = await reportStatus({ enabledAt: enabled ? localIso() : undefined });
+  if (enabled && !reported) return { ok: false, reason: 'status' };
   if (enabled) await drainDeletionQueue();
   return { ok: true };
 }
