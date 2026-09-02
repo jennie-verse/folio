@@ -1373,7 +1373,7 @@ function paintSegments() {
     button.setAttribute('aria-pressed', String(Number(button.dataset.days) === settings.get('retentionDays')));
   });
   $('#lastCleanup').textContent = retention.lastCleanupLine();
-  $('#buildLine').textContent = `Build ${APP_BUILD}`;
+  $('#buildLine').textContent = `App version ${APP_BUILD}`;
 }
 
 async function paintUsage() {
