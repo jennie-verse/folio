@@ -328,6 +328,7 @@ export async function render(ctx) {
     ],
     bottom: [slider, zoomSlider],
     setScale,
+    goToPage,
     destroy() {
       gestures.abort();
       if (scrollFrame) cancelAnimationFrame(scrollFrame);

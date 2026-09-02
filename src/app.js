@@ -53,6 +53,7 @@ const State = {
   annotationObserver: null,
   selectMode: false,
   selectedIds: new Set(),
+  annotationColorFilter: null,
 };
 const readingSessions = createSessionTracker({
   kind: 'reading-session', itemType: 'document', storageKey: 'folio.journalSessions.v1',
@@ -136,6 +137,7 @@ async function refreshLibrary() {
     retentionDays: days,
   });
   const ordered = search.sortDocuments(filtered, settings.get('sort'));
+  const annotationCounts = await store.annotationCounts();
 
   ordered.forEach((doc) => {
     list.appendChild(el('li', {}, [library.documentRow(doc, {
@@ -145,6 +147,7 @@ async function refreshLibrary() {
       selectMode: State.selectMode,
       selected: State.selectedIds.has(doc.id),
       onToggleSelect: toggleDocSelection,
+      annotationCount: annotationCounts.get(doc.id),
     })]));
   });
 
@@ -564,6 +567,7 @@ async function showInViewer(record, blob, { transient = false } = {}) {
   State.current = record;
   State.transient = transient;
   State.journalReadMarked = false;
+  State.annotationColorFilter = null;
   bottomText = '';
   if (!transient) await store.touch(record.id);
 
@@ -977,6 +981,28 @@ async function createAnnotation(kind, { note = '', semanticColor = 'core', selec
   return item;
 }
 
+function sameCalendarDay(a, b) { return String(a || '').slice(0, 10) === String(b || '').slice(0, 10); }
+
+// Exporting the same selection/annotation again today (a normal habit while
+// studying — export, keep reading, export again) must not pile up a fresh
+// IndexedDB row and a fresh Journal record on every click. Reuse today's
+// existing exported-excerpt row for the same quote+note instead of creating
+// a new one each time.
+async function createOrReuseExportedExcerpt({ note = '', selection = State.selection } = {}) {
+  if (!State.current || State.transient) return null;
+  const now = annotationTimestamp();
+  const quote = String(selection?.quote || '').normalize('NFC');
+  const noteText = String(note || '').normalize('NFC');
+  const existing = (await store.listAnnotations(State.current.id, { includeExports: true }))
+    .find((row) => row.kind === 'exported-excerpt' && row.quote === quote && row.note === noteText && sameCalendarDay(row.createdAt, now));
+  if (existing) {
+    const next = { ...existing, updatedAt: now, revision: Number(existing.revision || 1) + 1 };
+    await store.putAnnotation(next);
+    return saveJournalRef(next, 'updated');
+  }
+  return createAnnotation('exported-excerpt', { note: noteText, selection });
+}
+
 async function highlightSelection() {
   if (!State.selection) return;
   await createAnnotation('highlight');
@@ -1006,7 +1032,7 @@ async function exportSelection() {
   const saved = await store.listAnnotations(State.current.id, { includeExports: false });
   const attached = saved.find((entry) => entry.quote === State.selection.quote
     && String(entry.locator?.locationLabel || '') === String(State.selection.locator?.locationLabel || ''));
-  const item = await createAnnotation('exported-excerpt', { note: attached?.note || '' });
+  const item = await createOrReuseExportedExcerpt({ note: attached?.note || '' });
   if (!item) return;
   const content = annotation.serializeAnnotationMarkdown(item, State.current);
   const name = annotation.annotationFileName(State.current, 'excerpt');
@@ -1045,7 +1071,7 @@ async function removeAnnotation(item) {
 }
 
 async function exportOneAnnotation(item) {
-  const exported = await createAnnotation('exported-excerpt', {
+  const exported = await createOrReuseExportedExcerpt({
     note: item.note,
     selection: { quote: item.quote, locator: item.locator },
   });
@@ -1061,23 +1087,84 @@ async function exportAllAnnotations() {
   journal.recordActivity(State.current, 'export-requested').catch(() => {});
 }
 
+const ANNOTATION_COLOR_LABELS = { core: 'Core', agree: 'Agree', question: 'Question', word: 'Word', quote: 'Quote' };
+
+function reducedMotion() { return matchMedia('(prefers-reduced-motion: reduce)').matches; }
+
+function flashTarget(target) {
+  if (!target) return;
+  target.classList.add('annotation-flash');
+  setTimeout(() => target.classList.remove('annotation-flash'), 1500);
+}
+
+/** Scrolls the open document to where a highlight/note actually is. PDF pages
+    jump through the handler's own goToPage; everything else re-locates the
+    saved quote the same way applyStoredHighlights does (annotation.findTextRange),
+    and a quote-less standalone note falls back to its saved scroll ratio. */
+async function jumpToAnnotation(item) {
+  if (item.locator?.type === 'pdf' && item.locator?.page) {
+    if (State.view?.goToPage) State.view.goToPage(item.locator.page);
+    return;
+  }
+  const body = $('#viewerBody');
+  if (!body) return;
+  if (item.quote) {
+    const range = annotation.findTextRange(body, item);
+    const container = range && (range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement);
+    if (container) {
+      container.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+      flashTarget(container);
+      return;
+    }
+  }
+  if (typeof item.locator?.scrollRatio === 'number') {
+    const max = Math.max(1, body.scrollHeight - body.clientHeight);
+    body.scrollTo({ top: item.locator.scrollRatio * max, behavior: reducedMotion() ? 'auto' : 'smooth' });
+  }
+}
+
 async function openAnnotationsSheet() {
   if (!State.current || State.transient) return;
-  const items = await store.listAnnotations(State.current.id, { includeExports: false });
+  const all = await store.listAnnotations(State.current.id, { includeExports: false });
+  const filter = State.annotationColorFilter;
+  const items = filter ? all.filter((item) => (item.semanticColor || 'core') === filter) : all;
   customSheet((panel, close) => {
     panel.appendChild(el('h2', { text: 'Notes and highlights' }));
     panel.appendChild(el('div', { class: 'row' }, [
       el('button', { class: 'primary', type: 'button', text: 'Add note here', onclick: () => { close(); addStandaloneNote(); } }),
-      el('button', { type: 'button', text: 'Export all .md', disabled: !items.length, onclick: () => { close(); exportAllAnnotations(); } }),
+      el('button', { type: 'button', text: 'Export all .md', disabled: !all.length, onclick: () => { close(); exportAllAnnotations(); } }),
     ]));
+    if (all.length > 1) {
+      const chiprow = el('div', { class: 'chiprow' });
+      const chip = (value, label) => el('button', {
+        class: 'chip', type: 'button', 'aria-pressed': String(filter === value),
+        onclick: () => { State.annotationColorFilter = filter === value ? null : value; close(); openAnnotationsSheet(); },
+      }, [
+        el('span', { class: 'annotation-color-dot', 'aria-hidden': 'true', dataset: { color: value } }),
+        label,
+      ]);
+      chiprow.appendChild(el('button', {
+        class: 'chip', type: 'button', 'aria-pressed': String(!filter),
+        onclick: () => { State.annotationColorFilter = null; close(); openAnnotationsSheet(); },
+      }, 'All'));
+      Object.entries(ANNOTATION_COLOR_LABELS).forEach(([value, label]) => chiprow.appendChild(chip(value, label)));
+      panel.appendChild(chiprow);
+    }
     const list = el('div', { class: 'annotation-list' });
-    if (!items.length) list.appendChild(el('p', { class: 'muted', text: 'Select text to highlight it, or add a note at the current location.' }));
+    if (!items.length) {
+      list.appendChild(el('p', { class: 'muted', text: filter ? `No ${ANNOTATION_COLOR_LABELS[filter].toLowerCase()} highlights in this document.` : 'Select text to highlight it, or add a note at the current location.' }));
+    }
     items.forEach((item) => {
       const card = el('article', { class: 'annotation-item' });
-      card.appendChild(el('div', { class: 'small muted', text: `${item.kind === 'note' ? 'Note' : 'Highlight'}${item.locator?.locationLabel ? ` · ${item.locator.locationLabel}` : ''}` }));
+      const head = el('div', { class: 'small muted' }, [
+        item.kind !== 'note' ? el('span', { class: 'annotation-color-dot', 'aria-hidden': 'true', dataset: { color: item.semanticColor || 'core' } }) : null,
+        `${item.kind === 'note' ? 'Note' : 'Highlight'}${item.locator?.locationLabel ? ` · ${item.locator.locationLabel}` : ''}`,
+      ]);
+      card.appendChild(head);
       if (item.quote) card.appendChild(el('blockquote', { text: item.quote }));
       if (item.note) card.appendChild(el('p', { text: item.note }));
       card.appendChild(el('div', { class: 'row' }, [
+        el('button', { type: 'button', text: 'Go to', onclick: () => { close(); jumpToAnnotation(item); } }),
         el('button', { type: 'button', text: 'Edit', onclick: () => { close(); editAnnotation(item); } }),
         el('button', { type: 'button', text: 'Export .md', onclick: () => exportOneAnnotation(item) }),
         el('button', { class: 'danger', type: 'button', text: 'Delete', onclick: () => { close(); removeAnnotation(item); } }),
@@ -1085,6 +1172,98 @@ async function openAnnotationsSheet() {
       list.appendChild(card);
     });
     panel.appendChild(list);
+  });
+}
+
+function annotationMatchesQuery(item, needle) {
+  if (!needle) return true;
+  return (item.quote || '').toLowerCase().includes(needle) || (item.note || '').toLowerCase().includes(needle);
+}
+
+/** The whole-library review screen (folio annotation improvements plan):
+    every highlight and note across every document, in one place, filterable
+    by colour and by your own quote/note text — the thing studying from many
+    documents over weeks actually needs, that opening one document at a time
+    never gave. "Go to" opens the source document (if it isn't already open)
+    and then jumps to the exact spot, reusing the same jumpToAnnotation this
+    per-document sheet uses. */
+async function openLibraryAnnotationsSheet() {
+  const [rows, docs] = await Promise.all([
+    store.listAllAnnotations({ includeExports: false }),
+    store.listDocuments(),
+  ]);
+  const docMap = new Map(docs.map((doc) => [doc.id, doc]));
+  const withDocs = rows.filter((item) => docMap.has(item.docId));
+  if (!withDocs.length) { toast('No highlights or notes yet.'); return; }
+
+  let colorFilter = null;
+  let queryText = '';
+
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'My Highlights & Notes' }));
+    const searchInput = el('input', {
+      type: 'search', placeholder: 'Search your highlights and notes',
+      'aria-label': 'Search your highlights and notes',
+    });
+    panel.appendChild(searchInput);
+
+    const chiprow = el('div', { class: 'chiprow' });
+    panel.appendChild(chiprow);
+    const list = el('div', { class: 'annotation-list' });
+    panel.appendChild(list);
+
+    function renderChips() {
+      clear(chiprow);
+      const chip = (value, label, dot) => el('button', {
+        class: 'chip', type: 'button', 'aria-pressed': String(colorFilter === value),
+        onclick: () => { colorFilter = colorFilter === value ? null : value; renderChips(); renderList(); },
+      }, [dot ? el('span', { class: 'annotation-color-dot', 'aria-hidden': 'true', dataset: { color: value } }) : null, label]);
+      chiprow.appendChild(chip(null, 'All', false));
+      Object.entries(ANNOTATION_COLOR_LABELS).forEach(([value, label]) => chiprow.appendChild(chip(value, label, true)));
+    }
+
+    function renderList() {
+      clear(list);
+      const needle = queryText.trim().toLowerCase();
+      const filtered = withDocs.filter((item) => (!colorFilter || (item.semanticColor || 'core') === colorFilter)
+        && annotationMatchesQuery(item, needle));
+      if (!filtered.length) { list.appendChild(el('p', { class: 'muted', text: 'No matches.' })); return; }
+      const grouped = new Map();
+      filtered.forEach((item) => {
+        if (!grouped.has(item.docId)) grouped.set(item.docId, []);
+        grouped.get(item.docId).push(item);
+      });
+      [...grouped.keys()]
+        .sort((a, b) => (docMap.get(b)?.lastTouchedAt || 0) - (docMap.get(a)?.lastTouchedAt || 0))
+        .forEach((docId) => {
+          const doc = docMap.get(docId);
+          list.appendChild(el('h3', { text: doc.title || doc.fileName || 'Untitled' }));
+          grouped.get(docId).forEach((item) => {
+            const card = el('article', { class: 'annotation-item' });
+            card.appendChild(el('div', { class: 'small muted' }, [
+              item.kind !== 'note' ? el('span', { class: 'annotation-color-dot', 'aria-hidden': 'true', dataset: { color: item.semanticColor || 'core' } }) : null,
+              `${item.kind === 'note' ? 'Note' : 'Highlight'}${item.locator?.locationLabel ? ` · ${item.locator.locationLabel}` : ''}`,
+            ]));
+            if (item.quote) card.appendChild(el('blockquote', { text: item.quote }));
+            if (item.note) card.appendChild(el('p', { text: item.note }));
+            card.appendChild(el('div', { class: 'row' }, [
+              el('button', {
+                type: 'button', text: 'Go to',
+                onclick: async () => {
+                  close();
+                  if (State.current?.id !== doc.id) await openDocument(doc);
+                  await jumpToAnnotation(item);
+                },
+              }),
+            ]));
+            list.appendChild(card);
+          });
+        });
+    }
+
+    searchInput.addEventListener('input', () => { queryText = searchInput.value; renderList(); });
+    renderChips();
+    renderList();
   });
 }
 
@@ -1483,6 +1662,7 @@ function wire() {
     refreshLibrary();
   });
 
+  $('#btnLibraryAnnotations').addEventListener('click', openLibraryAnnotationsSheet);
   $('#btnSelectMode').addEventListener('click', () => setSelectMode(!State.selectMode));
   $('#btnSelectClear').addEventListener('click', clearSelection);
   $('#btnSelectNext').addEventListener('click', openExportSelectedSheet);

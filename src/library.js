@@ -172,10 +172,18 @@ function metaLine(doc) {
   return parts.filter(Boolean).join(' · ');
 }
 
+function annotationBadgeText(count) {
+  if (!count) return '';
+  const parts = [];
+  if (count.highlights) parts.push(`${count.highlights} hl`);
+  if (count.notes) parts.push(`${count.notes} note${count.notes === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+
 /** One list row. Tap opens, long press opens the row sheet.
     In selection mode (`selectMode: true`), tap toggles selection instead —
     used by "Export selected .md" (folio multi-export plan). */
-export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = false, selected = false, onToggleSelect }) {
+export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = false, selected = false, onToggleSelect, annotationCount }) {
   const row = el('button', { class: keepClass(doc) + (selectMode && selected ? ' selected' : ''), type: 'button' });
   if (selectMode) {
     row.setAttribute('aria-pressed', String(selected));
@@ -192,6 +200,8 @@ export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = f
   // The countdown is about a local copy, so a released document never shows it.
   const days = doc.released ? '' : retention.expiryBadge(doc, retentionDays);
   if (days) row.appendChild(el('span', { class: 'badge days', text: days }));
+  const annotationText = annotationBadgeText(annotationCount);
+  if (annotationText) row.appendChild(el('span', { class: 'badge annot', text: annotationText }));
   row.appendChild(tagFor(doc));
 
   if (selectMode) {

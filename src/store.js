@@ -202,8 +202,17 @@ export async function listAnnotations(docId, { includeDeleted = false, includeEx
 
 export async function getAnnotation(id) { return db.annotations.get(id); }
 
+// One flat, unsorted list of every live annotation in the library, for the
+// cross-document "My Highlights & Notes" review screen. Callers group/sort
+// and join against listDocuments() themselves.
+export async function listAllAnnotations({ includeExports = false } = {}) {
+  const rows = await db.annotations.toArray();
+  return rows.filter((item) => !item.deletedAt && (includeExports || item.kind !== 'exported-excerpt'));
+}
+
 export async function putAnnotation(annotation) {
   await db.annotations.put(annotation);
+  invalidateAnnotationCounts();
   return annotation;
 }
 
@@ -212,7 +221,31 @@ export async function softDeleteAnnotation(id) {
   if (!annotation || annotation.deletedAt) return annotation || null;
   const next = { ...annotation, deletedAt: Date.now(), updatedAt: new Date().toISOString(), revision: Number(annotation.revision || 1) + 1 };
   await db.annotations.put(next);
+  invalidateAnnotationCounts();
   return next;
+}
+
+// Library rows show a highlight/note count per document (folio annotation
+// improvements plan). A fresh full-table scan on every library render would
+// turn into a per-keystroke cost once wired into live search filtering, so
+// this caches the same way search.js caches its text index: hold the map
+// until something actually changes it.
+let countsCache = null;
+
+export function invalidateAnnotationCounts() { countsCache = null; }
+
+export async function annotationCounts() {
+  if (countsCache) return countsCache;
+  const rows = await db.annotations.toArray();
+  const map = new Map();
+  rows.forEach((row) => {
+    if (row.deletedAt || row.kind === 'exported-excerpt') return;
+    const entry = map.get(row.docId) || { highlights: 0, notes: 0 };
+    if (row.kind === 'note') entry.notes += 1; else entry.highlights += 1;
+    map.set(row.docId, entry);
+  });
+  countsCache = map;
+  return countsCache;
 }
 
 /* ── searchable text ───────────────────────────────────────────────────── */
@@ -293,6 +326,7 @@ export async function finalizeDelete(id) {
       await db.bookmarks.where('docId').equals(id).delete();
       await db.documents.delete(id);
     });
+  invalidateAnnotationCounts();
   return doc;
 }
 
@@ -318,6 +352,7 @@ export async function deleteEverything() {
         db.docText.clear(), db.readingStates.clear(), db.annotations.clear(), db.bookmarks.clear(),
       ]);
     });
+  invalidateAnnotationCounts();
 }
 
 /** Replace every portable document table in one Dexie transaction. All Blob
@@ -339,6 +374,7 @@ export async function replaceFromBackup(data) {
       if (data.annotations.length) await db.annotations.bulkPut(data.annotations);
       if (data.bookmarks.length) await db.bookmarks.bulkPut(data.bookmarks);
     });
+  invalidateAnnotationCounts();
 }
 
 /* ── usage ─────────────────────────────────────────────────────────────── */

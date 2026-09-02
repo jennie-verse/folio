@@ -324,10 +324,25 @@ mark{background:var(--warn);color:var(--status-ink)}
 }
 .annotation-toolbar button{flex:0 0 auto;min-height:38px;white-space:nowrap}
 .annotation-list{display:grid;gap:8px;margin:10px 0}
+.annotation-list h3{margin:14px 0 4px;font-size:var(--fs-sec);color:var(--text)}
+.annotation-list h3:first-child{margin-top:0}
 .annotation-item{padding:10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg)}
 .annotation-item blockquote{margin:5px 0;padding-left:9px;border-left:3px solid var(--rose);white-space:pre-wrap}
 .annotation-item p{white-space:pre-wrap;color:var(--text)}
 .annotation-item .row{margin:8px 0 0}
+.annotation-color-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle;border:1px solid rgba(74,58,64,.18)}
+.annotation-color-dot[data-color="core"]{background:#EFB3C1}
+.annotation-color-dot[data-color="agree"]{background:#8ECFB4}
+.annotation-color-dot[data-color="question"]{background:#F0C193}
+.annotation-color-dot[data-color="word"]{background:#B9D8EE}
+.annotation-color-dot[data-color="quote"]{background:#E4D7C0}
+.badge.annot{background:var(--rose-tint);color:var(--rose-ink);border-radius:5px;padding:0 5px}
+.annotation-flash{animation:folio-annotation-flash 1.4s ease-out}
+@keyframes folio-annotation-flash{
+  0%{background:transparent}
+  15%{background:var(--rose-tint)}
+  100%{background:transparent}
+}
 .annotation-editor textarea{min-height:130px;padding-top:10px;resize:vertical}
 .checkrow{display:flex;align-items:center;gap:8px;min-height:var(--tap);color:var(--text)}
 .checkrow input{width:20px;min-height:20px;accent-color:var(--rose-ink)}
