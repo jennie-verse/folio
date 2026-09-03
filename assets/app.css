@@ -106,6 +106,15 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 }
 .topbar h1{margin:0;font-size:var(--fs-title);font-weight:700;letter-spacing:-.01em}
 .topbar .grow{flex:1;min-width:0}
+/* #viewerTools ("Contents"/"Find"/"Source" for markdown, and any other
+   plain-<button> view-mode toolbar) had no rule of its own, so it fell back
+   to the base button{} — a full 44px-tall bordered pill for a one-word
+   label, which is also what kept the whole viewer topbar tall even after
+   the topbar's own padding was trimmed (2026-09-03, found on re-check).
+   Same visible-vs-hit-area split as .seg below. */
+#viewerTools{display:flex;align-items:center;gap:6px}
+#viewerTools button{position:relative;min-height:30px;min-width:0;padding:6px 10px}
+#viewerTools button::after{content:"";position:absolute;inset:-7px -3px}
 
 .bottombar{
   display:flex;align-items:center;gap:8px;
@@ -209,9 +218,17 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
   background:transparent;border:0;font-weight:700;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .seg{display:inline-flex;position:relative;max-width:100%;min-height:30px;border:1px solid var(--line);border-radius:var(--radius);overflow:visible;background:var(--card)}
-.seg button{border:0;border-radius:0;min-width:var(--tap);min-height:var(--tap);margin-block:-7px;flex:0 0 auto;padding:7px 10px;background:transparent;display:flex;align-items:center;justify-content:center;text-align:center}
+.seg button{position:relative;border:0;border-radius:0;min-width:var(--tap);min-height:var(--tap);margin-block:-7px;flex:0 0 auto;padding:7px 10px;background:transparent;display:flex;align-items:center;justify-content:center;text-align:center}
 .seg button + button{border-left:1px solid var(--line)}
-.seg button[aria-pressed="true"]{background:var(--rose-tint);font-weight:700}
+/* The pressed background used to be painted on the button itself, which is
+   min-height:44px (touch target) with a negative margin pulling only its
+   *position* in — margin can never shrink a painted background, so the
+   selected segment rendered as a visibly taller pill than its siblings
+   (2026-09-03, found while re-checking a ChatGPT pass on this same file).
+   Painting the fill on an inset ::before instead keeps it the same visual
+   30px as the unselected buttons, regardless of the 44px hit box under it. */
+.seg button[aria-pressed="true"]{font-weight:700}
+.seg button[aria-pressed="true"]::before{content:"";position:absolute;inset:7px 0;background:var(--rose-tint);z-index:-1}
 
 .vbody{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
   padding-left:var(--safe-l);padding-right:var(--safe-r);background:var(--bg)}
