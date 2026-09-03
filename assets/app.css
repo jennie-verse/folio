@@ -100,7 +100,7 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .screen{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 
 .topbar{
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  display:flex;align-items:center;gap:8px;flex-wrap:nowrap;
   padding:calc(var(--safe-t) + 4px) calc(var(--safe-r) + 12px) 4px calc(var(--safe-l) + 12px);
   background:var(--bg);border-bottom:1px solid var(--line);
 }
@@ -118,8 +118,15 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 
 /* ── Library ───────────────────────────────────────────────────────────── */
 
-.searchrow{display:flex;gap:8px;align-items:center;width:100%}
-.searchrow input{flex:1}
+.searchrow{display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:auto}
+.searchrow input{flex:1;min-width:0}
+@media(max-width:360px){
+  .topbar{gap:4px}
+  .topbar h1{font-size:18px}
+  .searchrow{gap:4px}
+  .searchrow button.icon{position:relative;min-width:36px;width:36px;min-height:36px;height:36px}
+  .searchrow button.icon::after{content:"";position:absolute;inset:-4px}
+}
 
 .continue{padding:10px 12px 2px}
 .continue h2{margin:0 0 6px;font-size:var(--fs-sec);font-weight:700}
