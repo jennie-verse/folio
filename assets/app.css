@@ -71,6 +71,7 @@ button{
   min-height:var(--tap);min-width:var(--tap);padding:0 12px;cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;text-align:center;
 }
+.sheet menu button,.toc-menu button{justify-content:flex-start;text-align:left}
 button.primary{background:var(--rose);border-color:var(--rose);color:var(--btn-ink);font-weight:700}
 button.danger{background:var(--card);border-color:var(--danger);color:var(--danger)}
 button.plain{background:transparent;border:0}
