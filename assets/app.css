@@ -69,7 +69,7 @@ button{
   font:inherit;font-size:var(--fs);color:var(--text);
   background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   min-height:var(--tap);min-width:var(--tap);padding:0 12px;cursor:pointer;
-  display:inline-flex;align-items:center;
+  display:inline-flex;align-items:center;justify-content:center;text-align:center;
 }
 button.primary{background:var(--rose);border-color:var(--rose);color:var(--btn-ink);font-weight:700}
 button.danger{background:var(--card);border-color:var(--danger);color:var(--danger)}
@@ -208,8 +208,8 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .vtitle{flex:1;min-width:96px;min-height:var(--tap);text-align:left;
   background:transparent;border:0;font-weight:700;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.seg{display:inline-flex;max-width:100%;border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto;background:var(--card);-webkit-overflow-scrolling:touch}
-.seg button{border:0;border-radius:0;min-width:var(--tap);min-height:var(--tap);flex:0 0 auto;padding:0 10px;background:transparent}
+.seg{display:inline-flex;position:relative;max-width:100%;min-height:30px;border:1px solid var(--line);border-radius:var(--radius);overflow:visible;background:var(--card)}
+.seg button{border:0;border-radius:0;min-width:var(--tap);min-height:var(--tap);margin-block:-7px;flex:0 0 auto;padding:7px 10px;background:transparent;display:flex;align-items:center;justify-content:center;text-align:center}
 .seg button + button{border-left:1px solid var(--line)}
 .seg button[aria-pressed="true"]{background:var(--rose-tint);font-weight:700}
 
@@ -387,6 +387,9 @@ table.csv tbody th{position:sticky;left:0;z-index:1;background:var(--rose-tint);
   box-shadow:var(--shadow);margin:0 12px 12px;padding:10px}
 .setgroup h2{margin:0 0 8px;font-size:var(--fs-sec)}
 .setrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.setrow button{align-items:center;justify-content:center;text-align:center}
+.setrow > button:not(.icon){position:relative;min-height:32px;padding-block:6px}
+.setrow > button:not(.icon)::after{content:"";position:absolute;inset:-6px 0}
 .setrow > .grow{flex:1;min-width:120px}
 .sethelp{color:var(--text-2);font-size:var(--fs-small);margin:0 0 10px}
 .journal-dates{align-items:end;flex-wrap:wrap}

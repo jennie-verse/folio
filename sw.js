@@ -8,7 +8,7 @@
 // PDF.js is about 5 MB. Precaching it would make the very first install slow
 // for someone who may never open a PDF, so it is fetched on demand and then
 // kept.
-const VERSION = '2026.09.03-headercontrols2';   // must match APP_BUILD in src/version.js
+const VERSION = '2026.09.03-controlcompact1';   // must match APP_BUILD in src/version.js
 
 const SHELL  = `folio-shell-${VERSION}`;
 const PDFJS  = `folio-pdfjs-${VERSION}`;
