@@ -101,7 +101,7 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 
 .topbar{
   display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-  padding:calc(var(--safe-t) + 8px) calc(var(--safe-r) + 12px) 8px calc(var(--safe-l) + 12px);
+  padding:calc(var(--safe-t) + 4px) calc(var(--safe-r) + 12px) 4px calc(var(--safe-l) + 12px);
   background:var(--bg);border-bottom:1px solid var(--line);
 }
 .topbar h1{margin:0;font-size:var(--fs-title);font-weight:700;letter-spacing:-.01em}
