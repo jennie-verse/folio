@@ -137,9 +137,10 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 
 .chiprow{display:flex;gap:6px;padding:8px 12px;overflow-x:auto}
 .chip{
-  flex:0 0 auto;min-height:var(--tap);padding:0 12px;border-radius:999px;
+  position:relative;flex:0 0 auto;min-height:30px;padding:6px 12px;border-radius:999px;
   background:var(--card);border:1px solid var(--line);color:var(--text-2);
 }
+.chip::after{content:"";position:absolute;inset:-7px -3px}
 .chip[aria-pressed="true"]{background:var(--rose-tint);border-color:var(--rose);color:var(--text);font-weight:700}
 
 .doclist{list-style:none;margin:0;padding:0 12px 12px}
