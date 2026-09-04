@@ -1188,6 +1188,52 @@ function annotationMatchesQuery(item, needle) {
     never gave. "Go to" opens the source document (if it isn't already open)
     and then jumps to the exact spot, reusing the same jumpToAnnotation this
     per-document sheet uses. */
+/** Sort, Filter by type, and My highlights and notes used to be three
+    separate icon buttons crowding the search row next to Select — on a
+    narrow phone that's 4 icon buttons plus the search input fighting for
+    space (2026-09-03). Folded the first three into one "..." menu sheet;
+    Select stays a standalone button since it's a persistent mode toggle,
+    not a one-off action. */
+function openLibraryMenu() {
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'Library' }));
+    panel.appendChild(el('div', { class: 'row' }, [
+      el('button', { type: 'button', text: 'Sort', onclick: () => { close(); openSortPicker(); } }),
+      el('button', { type: 'button', text: 'Filter by type', onclick: () => { close(); openTypeFilterSheet(); } }),
+      el('button', { type: 'button', text: 'My highlights and notes', onclick: () => { close(); openLibraryAnnotationsSheet(); } }),
+    ]));
+  });
+}
+
+async function openSortPicker() {
+  const picked = await choose('Sort', search.SORT_OPTIONS, settings.get('sort'));
+  if (!picked) return;
+  settings.set('sort', picked);
+  refreshLibrary();
+}
+
+function openTypeFilterSheet() {
+  const selected = settings.get('typeFilter');
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'Filter by type' }));
+    const menu = el('menu');
+    KINDS.forEach((kind) => {
+      const on = selected.includes(kind);
+      menu.appendChild(el('li', {}, [el('button', {
+        type: 'button', text: `${TAG_OF[kind]}${on ? ' ·' : ''}`, 'aria-pressed': String(on),
+        onclick: () => {
+          const next = on ? selected.filter((value) => value !== kind) : selected.concat(kind);
+          settings.set('typeFilter', next);
+          close();
+          refreshLibrary();
+        },
+      })]));
+    });
+    panel.appendChild(menu);
+    panel.appendChild(el('button', { type: 'button', text: 'Show all types', onclick: () => { settings.set('typeFilter', []); close(); refreshLibrary(); } }));
+  });
+}
+
 async function openLibraryAnnotationsSheet() {
   const [rows, docs] = await Promise.all([
     store.listAllAnnotations({ includeExports: false }),
@@ -1675,39 +1721,10 @@ function wire() {
     if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); refreshLibrary(); }
   });
 
-  $('#btnSort').addEventListener('click', async () => {
-    const picked = await choose('Sort', search.SORT_OPTIONS, settings.get('sort'));
-    if (!picked) return;
-    settings.set('sort', picked);
-    refreshLibrary();
-  });
-
-  $('#btnLibraryAnnotations').addEventListener('click', openLibraryAnnotationsSheet);
+  $('#btnLibraryMenu').addEventListener('click', openLibraryMenu);
   $('#btnSelectMode').addEventListener('click', () => setSelectMode(!State.selectMode));
   $('#btnSelectClear').addEventListener('click', clearSelection);
   $('#btnSelectNext').addEventListener('click', openExportSelectedSheet);
-
-  $('#btnTypeFilter').addEventListener('click', () => {
-    const selected = settings.get('typeFilter');
-    customSheet((panel, close) => {
-      panel.appendChild(el('h2', { text: 'Filter by type' }));
-      const menu = el('menu');
-      KINDS.forEach((kind) => {
-        const on = selected.includes(kind);
-        menu.appendChild(el('li', {}, [el('button', {
-          type: 'button', text: `${TAG_OF[kind]}${on ? ' ·' : ''}`, 'aria-pressed': String(on),
-          onclick: () => {
-            const next = on ? selected.filter((value) => value !== kind) : selected.concat(kind);
-            settings.set('typeFilter', next);
-            close();
-            refreshLibrary();
-          },
-        })]));
-      });
-      panel.appendChild(menu);
-      panel.appendChild(el('button', { type: 'button', text: 'Show all types', onclick: () => { settings.set('typeFilter', []); close(); refreshLibrary(); } }));
-    });
-  });
 
   $$('#stateChips .chip').forEach((chip) => {
     chip.addEventListener('click', () => {
