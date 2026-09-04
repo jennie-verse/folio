@@ -54,6 +54,7 @@ const State = {
   selectMode: false,
   selectedIds: new Set(),
   annotationColorFilter: null,
+  viewerTools: [],
 };
 const readingSessions = createSessionTracker({
   kind: 'reading-session', itemType: 'document', storageKey: 'folio.journalSessions.v1',
@@ -599,9 +600,8 @@ async function showInViewer(record, blob, { transient = false } = {}) {
   State.view = view;
   if (!transient) readingSessions.start(readingSessionItem(record));
 
-  const tools = $('#viewerTools');
-  clear(tools);
-  (view.tools || []).forEach((tool) => tools.appendChild(tool));
+  State.viewerTools = view.tools || [];
+  $('#btnViewerTools').classList.toggle('hidden', !State.viewerTools.length);
 
   const bottom = $('#viewerBottom');
   clear(bottom);
@@ -773,7 +773,8 @@ async function closeViewer() {
   State.journalReadMarked = false;
   const body = $('#viewerBody');
   clear(body);
-  clear($('#viewerTools'));
+  State.viewerTools = [];
+  $('#btnViewerTools').classList.add('hidden');
   clear($('#viewerBottom'));
 }
 
@@ -1297,6 +1298,25 @@ function openDocumentSheet() {
   });
 }
 
+/** The view-mode row (Read/Run/Source, Contents, Find — whatever the current
+    handler exposes via `view.tools`) used to live as always-visible buttons
+    in the viewer topbar, but on a narrow phone that row and the document
+    title were fighting over the same space: a long filename got crushed to
+    a couple of characters, or the last tool button (usually Find) got
+    crushed to near-zero width instead. Moving them into a single "⋯" menu
+    button gives the title its full width back and keeps every tool at a
+    normal, tappable size (2026-09-03, reported as "Find button not showing
+    on mobile" and, after an interim horizontal-scroll fix, "very
+    uncomfortable" and too little of the filename visible). */
+function openViewerToolsSheet() {
+  if (!State.viewerTools.length) return;
+  markReadOnce();
+  customSheet((panel) => {
+    panel.appendChild(el('h2', { text: 'View' }));
+    panel.appendChild(el('div', { class: 'row' }, State.viewerTools));
+  });
+}
+
 /* ── find ──────────────────────────────────────────────────────────────── */
 
 function openFindSheet(finder) {
@@ -1789,8 +1809,9 @@ function wire() {
     toast('Captured activity cleared on this device.');
   });
   $('#journalContent').addEventListener('change', async (event) => { await journal.setJournalContentEnabled(event.target.checked); await paintJournalState(); });
+  $('#btnViewerTools').addEventListener('click', openViewerToolsSheet);
   $('#viewer').addEventListener('pointerdown', (event) => {
-    if (event.target.closest('#viewerTools button, #viewerBottom button, #viewerBody button, #viewerBody input, #viewerBody select, #viewerBody textarea')) markReadOnce();
+    if (event.target.closest('#viewerBottom button, #viewerBody button, #viewerBody input, #viewerBody select, #viewerBody textarea')) markReadOnce();
   }, { passive: true });
 
   $('#btnDeleteAll').addEventListener('click', deleteAll);

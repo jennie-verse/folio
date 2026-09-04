@@ -107,27 +107,13 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 }
 .topbar h1{margin:0;font-size:var(--fs-title);font-weight:700;letter-spacing:-.01em}
 .topbar .grow{flex:1;min-width:0}
-/* #viewerTools ("Contents"/"Find"/"Source" for markdown, and any other
-   plain-<button> view-mode toolbar) had no rule of its own, so it fell back
-   to the base button{} — a full 44px-tall bordered pill for a one-word
-   label, which is also what kept the whole viewer topbar tall even after
-   the topbar's own padding was trimmed (2026-09-03, found on re-check).
-   Same visible-vs-hit-area split as .seg below. */
-/* On a narrow phone width, back+title+annotations icons alone can leave
-   less room than Read/Run/Source (.seg, flex-shrink:0 so it never garbles
-   into unreadable slivers) plus Find need. Without `min-width:0` a flex
-   item won't shrink below its content size at all, so #viewerTools would
-   just overflow the topbar and get clipped by an ancestor's overflow:hidden
-   — and since .seg refuses to shrink, 100% of that missing space landed on
-   the next sibling (Find), crushing it to near-zero width until it was
-   effectively invisible (2026-09-03, reported as "Find button not showing
-   on mobile"). `min-width:0` + `overflow-x:auto` turns this row into its
-   own horizontally-scrollable strip instead, so every button — including
-   Find — stays at a normal, tappable size and is always reachable. */
-#viewerTools{display:flex;align-items:center;gap:6px;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-#viewerTools::-webkit-scrollbar{display:none}
-#viewerTools button{position:relative;min-height:30px;min-width:0;padding:6px 10px;flex:0 0 auto}
-#viewerTools button::after{content:"";position:absolute;inset:-7px -3px}
+/* Read/Run/Source, Contents, Find etc. used to sit as always-visible
+   buttons in the topbar (#viewerTools), competing with the title for
+   width — on a narrow phone this either crushed the filename to a couple
+   of characters or crushed the last tool button (usually Find) to
+   near-invisible (2026-09-03). They now live in a "View" sheet opened via
+   #btnViewerTools (a normal .icon button, styled below), so the title
+   always gets its full width and every tool stays a normal tappable size. */
 
 .bottombar{
   display:flex;align-items:center;gap:8px;
