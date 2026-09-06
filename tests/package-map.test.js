@@ -1,0 +1,161 @@
+/* package-map.test.js — the DOM half of the package tests.
+   See package-map.test.html for how to run it. */
+
+import * as pkg from '../src/package.js';
+
+const results = [];
+function check(name, condition, detail) {
+  results.push({ name, ok: Boolean(condition), detail: detail || '' });
+}
+
+/* The sample ZIPs live in the WebApp folder, not in the app, so they are only
+   reachable when this page is served from a local review server. On the
+   deployed site that is not a failure — the check simply cannot run. */
+function skip(name, detail) {
+  results.push({ name, ok: false, skipped: true, detail });
+}
+
+/* A page that links to a PDF, draws one image, and does both with a third
+   file. Only the link-only file may leave the runtime map. */
+const MIXED = [
+  '<!doctype html><html><head><title>Mixed</title></head><body>',
+  '<a href="docs/report.pdf">report</a>',
+  '<img src="pics/logo.png" alt="logo">',
+  '<a href="pics/both.png">both</a><img src="pics/both.png" alt="both">',
+  '</body></html>',
+].join('');
+
+const b64 = (text) => btoa(text);
+const mixed = {
+  content: MIXED,
+  entryPath: 'index.html',
+  packageAssets: {
+    'docs/report.pdf': { mime: 'application/pdf', encoding: 'base64', data: b64('X'.repeat(4000)) },
+    'pics/logo.png': { mime: 'image/png', encoding: 'base64', data: b64('L'.repeat(40)) },
+    'pics/both.png': { mime: 'image/png', encoding: 'base64', data: b64('B'.repeat(40)) },
+    'unreferenced.txt': { mime: 'text/plain', encoding: 'base64', data: b64('orphan') },
+  },
+};
+
+/* A page with one link to a file the ZIP genuinely never contained — the
+   shape of every link in sample/mind-map.zip, whose HTML expects png/svg/pdf
+   subfolders that don't exist in that particular archive. An untagged anchor
+   falls through every branch of instrument()'s click handler with no
+   preventDefault(), so the click attempts a real default navigation of the
+   sandboxed frame to a path that was never in the package — which fails
+   silently inside the nested frame, with no toast and no Preview issues
+   entry. Tagging it anyway routes the click through the app's existing
+   "This file is not in the package." toast instead. */
+const BROKEN_LINK = [
+  '<!doctype html><html><head><title>Broken</title></head><body>',
+  '<a href="missing/nowhere.pdf">nowhere</a>',
+  '</body></html>',
+].join('');
+const brokenLink = { content: BROKEN_LINK, entryPath: 'index.html', packageAssets: {} };
+
+function payloadOf(html) {
+  const raw = /var P=(\{[\s\S]*?\}),M=P\.map/.exec(html)[1];
+  return JSON.parse(raw.replace(/\\u003c/g, '<').replace(/\\u2028|\\u2029/g, ''));
+}
+
+async function run() {
+  const out = pkg.materialize(mixed, 's1', '', '');
+  const payload = payloadOf(out.html);
+
+  check('anchor-only asset leaves the map', !payload.map['docs/report.pdf']);
+  check('drawn asset stays inlined', Boolean(payload.map['pics/logo.png']));
+  check('dual-use asset stays inlined', Boolean(payload.map['pics/both.png']));
+  check('unreferenced asset stays inlined', Boolean(payload.map['unreferenced.txt']));
+  check('anchor-only asset is still known', Boolean(payload.known['docs/report.pdf']));
+  check('link carries data-folio-path', out.html.includes('data-folio-path="docs/report.pdf"'));
+  check('dual-use link also carries the path', out.html.includes('data-folio-path="pics/both.png"'));
+
+  const brokenOut = pkg.materialize(brokenLink, 's1', '', '');
+  check('a link to a path the ZIP never had is still tagged',
+    brokenOut.html.includes('data-folio-path="missing/nowhere.pdf"'));
+  check('a link to a path the ZIP never had is reported, not silently dropped',
+    brokenOut.warnings.some((w) => w.includes('missing/nowhere.pdf')));
+
+  for (const name of ['mindmap.zip', 'mindmap-.zip']) {
+    try {
+      const response = await fetch(`../../../sample/${name}`);
+      if (!response.ok) { skip(`${name} size check`, 'sample not served here — run from the local review server'); continue; }
+      const meta = await pkg.importZip(new File([await response.blob()], name));
+      const materialized = pkg.materialize(meta, 's1', '', '');
+      const kb = materialized.html.length / 1024;
+      check(`${name} materializes under 100 KB`, kb < 100, `${kb.toFixed(1)} KB`);
+      check(`${name} materializes without warnings`, materialized.warnings.length === 0, materialized.warnings.join(' · '));
+      const anchors = (materialized.html.match(/data-folio-path="/g) || []).length;
+      check(`${name} tags its links`, anchors > 0, `${anchors} links tagged`);
+    } catch (error) {
+      check(`${name} materializes under 100 KB`, false, String(error.message || error));
+    }
+  }
+
+  /* mind-map.zip's own HTML expects png/svg/pdf subfolders that this
+     particular archive does not contain (13 files, all at the ZIP root) —
+     a real, not synthetic, case of every non-bundle link pointing nowhere.
+     Every one of those anchors must still be tagged, or the click silently
+     dies inside the sandboxed frame (see BROKEN_LINK above). */
+  try {
+    const response = await fetch('../../../sample/mind-map.zip');
+    if (!response.ok) { skip('mind-map.zip tags links the archive lacks', 'sample not served here — run from the local review server'); }
+    else {
+      const meta = await pkg.importZip(new File([await response.blob()], 'mind-map.zip'));
+      const materialized = pkg.materialize(meta, 's1', '', '');
+      const doc = new DOMParser().parseFromString(materialized.html, 'text/html');
+      const anchors = [...doc.querySelectorAll('a[href]')].filter((a) => a.getAttribute('href') !== '#');
+      const untagged = anchors.filter((a) => !a.hasAttribute('data-folio-path'));
+      check('mind-map.zip tags every link, including ones the archive lacks',
+        anchors.length > 0 && untagged.length === 0,
+        `${anchors.length} anchors, ${untagged.length} untagged: ${untagged.map((a) => a.getAttribute('href')).join(', ')}`);
+      const missing = anchors.filter((a) => !meta.packageAssets[a.getAttribute('data-folio-path')]);
+      check('mind-map.zip reports each one missing, not silently',
+        missing.length > 0 && missing.length === materialized.warnings.length,
+        `${missing.length} links point nowhere, ${materialized.warnings.length} warnings`);
+    }
+  } catch (error) {
+    check('mind-map.zip tags every link, including ones the archive lacks', false, String(error.message || error));
+  }
+
+  const failed = results.filter((row) => !row.ok && !row.skipped).length;
+  const skipped = results.filter((row) => row.skipped).length;
+  const head = document.getElementById('head');
+  head.textContent = failed
+    ? `${failed} of ${results.length} checks FAILED`
+    : skipped
+      ? `${results.length - skipped} checks passed, ${skipped} UNVERIFIED (required real fixture missing)`
+      : `All ${results.length} checks passed`;
+
+  const list = document.getElementById('results');
+  results.forEach((row) => {
+    const item = document.createElement('li');
+    const line = document.createElement('div');
+    line.className = 'docrow';
+    const main = document.createElement('div');
+    main.className = 'dr-main';
+    const title = document.createElement('div');
+    title.className = 'dr-title';
+    title.textContent = row.name;
+    main.appendChild(title);
+    if (row.detail) {
+      const sub = document.createElement('div');
+      sub.className = 'dr-sub';
+      sub.textContent = row.detail;
+      main.appendChild(sub);
+    }
+    const badge = document.createElement('span');
+    badge.className = row.skipped ? 'badge needs' : row.ok ? 'badge pin' : 'badge days';
+    badge.textContent = row.skipped ? 'SKIP' : row.ok ? 'PASS' : 'FAIL';
+    line.appendChild(main);
+    line.appendChild(badge);
+    item.appendChild(line);
+    list.appendChild(item);
+  });
+
+  window.__folioPackageMapResults = results;
+}
+
+run().catch((error) => {
+  document.getElementById('head').textContent = `Harness error: ${error.message}`;
+});
