@@ -6,6 +6,17 @@
 
 import { el } from './ui.js';
 
+/** Literal matches in the original UTF-16 text, without offsets drifting when
+    case conversion changes a character's length (for example capital İ). */
+export function findTextMatches(value, query) {
+  const needle = String(query || '').trim();
+  if (!needle) return [];
+  const pattern = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return Array.from(String(value).matchAll(new RegExp(pattern, 'giu')), (match) => ({
+    start: match.index, end: match.index + match[0].length,
+  }));
+}
+
 export class Finder {
   constructor(container) {
     this.container = container;
@@ -27,7 +38,7 @@ export class Finder {
   /** Highlight every case-insensitive occurrence. Returns the match count. */
   search(query) {
     this.clear();
-    const needle = String(query || '').trim().toLowerCase();
+    const needle = String(query || '').trim();
     if (!needle || !this.container) return 0;
 
     const walker = document.createTreeWalker(this.container, NodeFilter.SHOW_TEXT, {
@@ -44,18 +55,16 @@ export class Finder {
     while (node) { targets.push(node); node = walker.nextNode(); }
 
     targets.forEach((textNode) => {
-      let value = textNode.nodeValue;
       let cursor = textNode;
-      let at = value.toLowerCase().indexOf(needle);
-      while (at >= 0) {
-        const after = cursor.splitText(at);
-        const rest = after.splitText(needle.length);
+      let offset = 0;
+      for (const match of findTextMatches(textNode.nodeValue, needle)) {
+        const after = cursor.splitText(match.start - offset);
+        const rest = after.splitText(match.end - match.start);
         const mark = el('mark', { text: after.nodeValue });
         after.parentNode.replaceChild(mark, after);
         this.marks.push(mark);
         cursor = rest;
-        value = cursor.nodeValue;
-        at = value.toLowerCase().indexOf(needle);
+        offset = match.end;
       }
     });
 

@@ -1354,9 +1354,14 @@ function openDocumentSheet() {
 function openViewerToolsSheet() {
   if (!State.viewerTools.length) return;
   markReadOnce();
-  customSheet((panel) => {
+  customSheet((panel, close) => {
     panel.appendChild(el('h2', { text: 'View' }));
     panel.appendChild(el('div', { class: 'row' }, State.viewerTools));
+    // Dismiss before the selected tool opens its own dialog so two focus
+    // traps and translucent sheets never remain stacked over the document.
+    panel.addEventListener('click', (event) => {
+      if (event.target.closest('button')) close();
+    }, { capture: true });
   });
 }
 
@@ -1842,38 +1847,7 @@ function wire() {
 
 /* ── boot ──────────────────────────────────────────────────────────────── */
 
-/* One-time wipe for the 2026-09-05 "treat as a first release" reset. Clears
-   only folio's own storage: localStorage keys prefixed `folio.` and the
-   `folio` IndexedDB database. Never touches `sync.token.v1` — that key has
-   no `folio.` prefix on purpose, because it is a GitHub token shared across
-   apps on this origin (see src/sync.js KEYS). Gated on a literal marker key
-   so it runs exactly once, ever, regardless of future version bumps. */
-const FRESH_START_MARKER = 'folio.freshStart.2026-09-05';
-
-async function freshStartResetOnce() {
-  try {
-    if (localStorage.getItem(FRESH_START_MARKER)) return;
-  } catch {
-    return; // storage unavailable — nothing to reset, nothing to mark
-  }
-  try {
-    Object.keys(localStorage)
-      .filter((key) => key.startsWith('folio.'))
-      .forEach((key) => { try { localStorage.removeItem(key); } catch { /* best effort */ } });
-  } catch { /* private mode */ }
-  try {
-    await new Promise((resolve) => {
-      const req = indexedDB.deleteDatabase('folio');
-      req.onsuccess = resolve;
-      req.onerror = resolve;
-      req.onblocked = resolve;
-    });
-  } catch { /* IndexedDB unavailable */ }
-  try { localStorage.setItem(FRESH_START_MARKER, '1'); } catch { /* private mode */ }
-}
-
 async function boot() {
-  await freshStartResetOnce();
   settings.applyFontSize();
   settings.applyTheme();
   settings.watchSystemTheme();
