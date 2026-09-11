@@ -373,3 +373,33 @@ Highlight 저장 → 수정 전에는(코드 리뷰로 확인) 첫 번째 등장
 
 - [ ] 실제 iPhone/iPad에서 폴더/태그 관리 시트의 터치 조작감
 - [ ] 폴더가 많거나(수십 개) 태그가 많은 경우의 시트 스크롤·성능
+
+---
+
+## 2026-09-11 — `Read aloud`(선택 영문 텍스트 음성 읽기) 추가 (빌드 `2026.09.11-readaloud1`)
+
+- 선택 작업 막대(`annotation-toolbar`)에 `Read aloud` 버튼 추가. 기기 내장
+  Web Speech API(`speechSynthesis`)만 사용 — 외부 서버·CDN 없음, 오프라인
+  동작.
+- 선택한 문구에서 영문(라틴 문자) 구간만 정규식으로 추출해 `en-US` 음성으로
+  읽음 — 한글·영문 혼용 문장에서 한글은 건너뜀.
+- 재생 중 버튼 텍스트가 `Stop`으로 바뀌고(`aria-pressed` 갱신), 다시 누르면
+  중지. 선택이 다른 문구로 바뀌거나 뷰어를 닫으면(`closeViewer`,
+  `clearSelectionAction`) 자동으로 `speechSynthesis.cancel()` 호출.
+- `speechSynthesis`를 지원하지 않는 브라우저에서는 버튼 자체를 숨김
+  (`'speechSynthesis' in window` 판별).
+
+**자동 테스트**: `npm test` 96/96 통과(회귀 없음).
+
+**실제 브라우저로 직접 확인한 것**
+
+- 로컬 프리뷰에서 영문+한글 혼용 텍스트 문서를 만들어 전체 선택 →
+  `Read aloud` 노출 확인 → 클릭 시 `speechSynthesis.speak()`가 영문 문장만
+  (한글 문장 제외) 인자로 호출됨을 확인 → 버튼이 `Stop`으로 전환 → 다시
+  클릭 시 `Read aloud`로 복귀. 콘솔 오류 없음.
+
+**Pending — 실기기 확인 필요**
+
+- [ ] 실제 iPhone/iPad Safari에서 실제 음성 출력(음질·언어 자동 선택)과
+      화면 잠금·백그라운드 전환 시 재생 중단 여부
+- [ ] VoiceOver 등 스크린리더 사용 중 `Read aloud` 버튼과의 상호작용

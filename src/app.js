@@ -51,6 +51,7 @@ const State = {
   libraryCollapsed: false,
   journalReadMarked: false,
   selection: null,
+  speaking: false,
   highlightCleanup: null,
   annotationObserver: null,
   selectMode: false,
@@ -783,6 +784,7 @@ async function flushViewerReading() {
 }
 
 async function closeViewer() {
+  stopSpeaking();
   readingSessions.clearItem();
   await flushViewerReading().catch(() => {});
   State.pendingZoom = null;
@@ -951,6 +953,7 @@ async function attachAnnotationTools(body) {
   State.annotationObserver.observe(body, { childList: true, subtree: true });
   const updateSelection = () => {
     const captured = annotation.captureSelection(body);
+    if (State.speaking && captured?.quote !== State.selection?.quote) stopSpeaking();
     if (captured) State.selection = captured;
     $('#annotationToolbar').classList.toggle('hidden', !captured);
   };
@@ -959,6 +962,7 @@ async function attachAnnotationTools(body) {
 }
 
 function clearSelectionAction() {
+  stopSpeaking();
   $('#annotationToolbar').classList.add('hidden');
   try { window.getSelection()?.removeAllRanges(); } catch { /* selection may belong to a closed view */ }
   State.view?.clearFrameSelection?.();
@@ -1059,6 +1063,38 @@ async function noteSelection() {
   await createAnnotation('highlight', { note: result.note, semanticColor: result.color });
   clearSelectionAction();
   toast('Highlight and note saved.');
+}
+
+// Read Aloud speaks only the English portions of a selection — folio's own
+// text is routinely Korean/English mixed, and the SpeechSynthesis voices
+// available on iOS/Safari mangle Korean if handed the raw selection.
+function extractEnglishText(text) {
+  const runs = String(text || '').match(/[A-Za-z][A-Za-z0-9'".,;:!?()&/\-]*(?:\s+[A-Za-z0-9'".,;:!?()&/\-]+)*/g) || [];
+  return runs.map((run) => run.trim()).filter(Boolean).join('. ');
+}
+
+function stopSpeaking() {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  State.speaking = false;
+  const button = $('#btnSelectionSpeak');
+  if (button) { button.textContent = 'Read aloud'; button.setAttribute('aria-pressed', 'false'); }
+}
+
+function speakSelection() {
+  if (!('speechSynthesis' in window) || !State.selection) return;
+  const button = $('#btnSelectionSpeak');
+  if (State.speaking) { stopSpeaking(); return; }
+  const text = extractEnglishText(State.selection.quote);
+  if (!text) { toast('No English text in this selection.'); return; }
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.onend = stopSpeaking;
+  utterance.onerror = stopSpeaking;
+  State.speaking = true;
+  if (button) { button.textContent = 'Stop'; button.setAttribute('aria-pressed', 'true'); }
+  window.speechSynthesis.speak(utterance);
 }
 
 async function shareMarkdown(content, name) {
@@ -1976,6 +2012,11 @@ function wire() {
   $('#btnSelectionHighlight').addEventListener('click', highlightSelection);
   $('#btnSelectionNote').addEventListener('click', noteSelection);
   $('#btnSelectionExport').addEventListener('click', exportSelection);
+  if ('speechSynthesis' in window) {
+    $('#btnSelectionSpeak').addEventListener('click', speakSelection);
+  } else {
+    $('#btnSelectionSpeak').classList.add('hidden');
+  }
 
   $$('#segTextSize button').forEach((button) => {
     button.addEventListener('click', () => { settings.set('fs', Number(button.dataset.fs)); paintSegments(); refreshContinue(); });
