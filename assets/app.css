@@ -153,7 +153,7 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .chiprow{display:flex;gap:6px;padding:8px 12px;overflow-x:auto}
 .chip{
   position:relative;flex:0 0 auto;min-height:30px;padding:6px 12px;border-radius:999px;
-  background:var(--card);border:1px solid var(--line);color:var(--text-2);
+  background:var(--card);border:1px solid var(--line);color:var(--text-2);white-space:nowrap;
 }
 .chip::after{content:"";position:absolute;inset:-7px -3px}
 .chip[aria-pressed="true"]{background:var(--rose-tint);border-color:var(--rose);color:var(--text);font-weight:700}
@@ -389,7 +389,10 @@ mark{background:var(--warn);color:var(--status-ink)}
 .annotation-color-dot[data-color="word"]{background:#B9D8EE}
 .annotation-color-dot[data-color="quote"]{background:#E4D7C0}
 .badge.annot{background:var(--rose-tint);color:var(--rose-ink);border-radius:5px;padding:0 5px}
-.badge.folder{background:var(--t-fixed);color:var(--text);border-radius:5px;padding:0 5px}
+.badge.folder{
+  background:var(--t-fixed);color:var(--text);border-radius:5px;padding:0 5px;
+  max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .dr-tags{font-size:var(--fs-small);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .annotation-flash{animation:folio-annotation-flash 1.4s ease-out}
 @keyframes folio-annotation-flash{

@@ -198,7 +198,7 @@ export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = f
   }
   row.appendChild(main);
 
-  if (folderName) row.appendChild(el('span', { class: 'badge folder', text: folderName }));
+  if (folderName) row.appendChild(el('span', { class: 'badge folder', text: folderName, title: folderName }));
   if (doc.pinned) row.appendChild(el('span', { class: 'badge pin', text: 'Pinned' }));
   else if (doc.released) row.appendChild(el('span', { class: 'badge needs', text: 'Needs file' }));
   // The countdown is about a local copy, so a released document never shows it.
