@@ -176,9 +176,16 @@ export function mount(container, options) {
 
   window.addEventListener('message', onMessage);
   container.appendChild(frame);
-  frame.addEventListener('load', () => {
-    try { frame.contentWindow.postMessage(payload, '*'); } catch { /* frame gone */ }
-  }, { once: true });
+  // Only 'bootstrap-ready' triggers the render post — NOT also the frame's own
+  // 'load' event, which used to fire this same postMessage a second time. Both
+  // paths raced (postMessage delivery is a queued task, so which one the
+  // parent's event loop reacts to first was never guaranteed), and whichever
+  // arrived second made preview-host wipe and rebuild the inner iframe from
+  // scratch: a visible blank flash, the document's embedded scripts (Run
+  // mode) restarting once, and — for Read mode's selection relay — any
+  // selection the reader had just made vanishing with the discarded iframe.
+  // 'bootstrap-ready' alone is sufficient: it is the host's own inline script
+  // announcing it has already attached its message listener.
   requestAnimationFrame(() => { if (frame.isConnected) frame.src = 'preview-host.html'; });
 
   return {
