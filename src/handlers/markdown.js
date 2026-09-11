@@ -20,7 +20,34 @@ export const kinds = ['markdown'];
 
 let markedPromise = null;
 function loadMarked() {
-  if (!markedPromise) markedPromise = import('../../vendor/marked.esm.js');
+  if (!markedPromise) {
+    markedPromise = import('../../vendor/marked.esm.js').then((mod) => {
+      // marked's default GFM `del` tokenizer accepts a single `~` as a
+      // strikethrough delimiter (a legacy alias some early GFM renderers
+      // supported), not just the standard `~~`. Financial/statistical notes
+      // routinely use a lone `~` for "approximately" (e.g. "200~300억",
+      // "9.5~11.5%"), and pairing two unrelated lone tildes anywhere in the
+      // document strikes through everything between them. Require the full
+      // `~~...~~` pair so a bare `~` never triggers strikethrough.
+      mod.marked.use({
+        tokenizer: {
+          del(src) {
+            const match = /^~~(?=[^\s~])([\s\S]*?[^\s~])~~(?!~)/.exec(src);
+            if (match) {
+              return {
+                type: 'del',
+                raw: match[0],
+                text: match[1],
+                tokens: this.lexer.inlineTokens(match[1]),
+              };
+            }
+            return undefined;
+          },
+        },
+      });
+      return mod;
+    });
+  }
   return markedPromise;
 }
 
