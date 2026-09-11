@@ -343,7 +343,12 @@ export async function render(ctx) {
       result.warnings.forEach((warning) => {
         addIssue('Package materialization', warning, /script|blocked|unsupported/i.test(warning) ? 'error' : 'warning');
       });
-      return result.html;
+      // materialize() already bakes instrument() in (it needs the session
+      // before the entry HTML is rewritten), so only the highlight colours
+      // are missing here — inject them the same way the non-package path
+      // below does, so a highlight saved inside a running package is
+      // actually visible, not just silently unstyled.
+      return preview.injectHead(result.html, preview.highlightStyle());
     }
     let html = preview.ensureViewport(source);
     html = preview.injectHead(html, preview.STORAGE_SHIM);
