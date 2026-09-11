@@ -374,7 +374,7 @@ mark{background:var(--warn);color:var(--status-ink)}
   max-width:calc(100vw - 20px);overflow-x:auto;background:var(--card);
   border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 28px rgba(74,58,64,.2)
 }
-.annotation-toolbar button{flex:0 0 auto;min-height:38px;white-space:nowrap}
+.annotation-toolbar button{flex:0 0 auto;min-height:var(--tap);white-space:nowrap}
 .annotation-list{display:grid;gap:8px;margin:10px 0}
 .annotation-list h3{margin:14px 0 4px;font-size:var(--fs-sec);color:var(--text)}
 .annotation-list h3:first-child{margin-top:0}

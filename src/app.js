@@ -1070,7 +1070,14 @@ async function noteSelection() {
 // available on iOS/Safari mangle Korean if handed the raw selection.
 function extractEnglishText(text) {
   const runs = String(text || '').match(/[A-Za-z][A-Za-z0-9'".,;:!?()&/\-]*(?:\s+[A-Za-z0-9'".,;:!?()&/\-]+)*/g) || [];
-  return runs.map((run) => run.trim()).filter(Boolean).join('. ');
+  return runs
+    .map((run) => run.trim())
+    .filter(Boolean)
+    // Runs already ending in sentence punctuation (most of them, since a
+    // Korean sentence typically follows an English one) would otherwise
+    // pick up a second, redundant period from the join below.
+    .map((run) => (/[.!?]$/.test(run) ? run : `${run}.`))
+    .join(' ');
 }
 
 function stopSpeaking() {
