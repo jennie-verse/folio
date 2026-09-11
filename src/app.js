@@ -1115,15 +1115,24 @@ function speakSelection() {
   const runs = segmentSpeechRuns(State.selection.quote);
   if (!runs.length) { toast('Nothing readable in this selection.'); return; }
   window.speechSynthesis.cancel();
-  runs.forEach((run, index) => {
-    const utterance = new SpeechSynthesisUtterance(run.text);
-    utterance.lang = run.lang === 'ko' ? 'ko-KR' : 'en-US';
-    utterance.onerror = stopSpeaking;
-    if (index === runs.length - 1) utterance.onend = stopSpeaking;
-    window.speechSynthesis.speak(utterance);
-  });
   State.speaking = true;
   if (button) { button.textContent = 'Stop'; button.setAttribute('aria-pressed', 'true'); }
+  // Chained rather than queued upfront: Safari/iOS (this app's primary
+  // target) has a long-standing history of silently dropping or
+  // misordering speak() calls fired back to back, especially across a
+  // voice/lang change — firing the next utterance only from the previous
+  // one's onend sidesteps that instead of trusting the browser's own queue.
+  let index = 0;
+  const speakNext = () => {
+    if (!State.speaking || index >= runs.length) { stopSpeaking(); return; }
+    const run = runs[index++];
+    const utterance = new SpeechSynthesisUtterance(run.text);
+    utterance.lang = run.lang === 'ko' ? 'ko-KR' : 'en-US';
+    utterance.onend = speakNext;
+    utterance.onerror = stopSpeaking;
+    window.speechSynthesis.speak(utterance);
+  };
+  speakNext();
 }
 
 async function shareMarkdown(content, name) {
