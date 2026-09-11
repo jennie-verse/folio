@@ -1065,19 +1065,39 @@ async function noteSelection() {
   toast('Highlight and note saved.');
 }
 
-// Read Aloud speaks only the English portions of a selection — folio's own
-// text is routinely Korean/English mixed, and the SpeechSynthesis voices
-// available on iOS/Safari mangle Korean if handed the raw selection.
-function extractEnglishText(text) {
-  const runs = String(text || '').match(/[A-Za-z][A-Za-z0-9'".,;:!?()&/\-]*(?:\s+[A-Za-z0-9'".,;:!?()&/\-]+)*/g) || [];
+// Read Aloud speaks a selection in its own mixed languages — folio's own
+// text is routinely Korean/English/number mixed, and a single voice mangles
+// whichever language it isn't set to. This walks the quote once and groups
+// it into alternating Korean and Latin/number runs, then queues one
+// utterance per run in the matching voice — the browser plays a speak()
+// queue back to back in order. Punctuation/space/symbols carry no language
+// of their own, so they're buffered and only committed once the next real
+// character's language is known: bridging punctuation between two words of
+// the SAME language (e.g. "speech." before another English word) stays with
+// that run, but a symbol immediately before a language switch (the $ in
+// "현재 $364") moves with the run it actually belongs to instead of being
+// stranded on the wrong side.
+function segmentSpeechRuns(text) {
+  const runs = [];
+  let current = null;
+  let pending = '';
+  for (const ch of String(text || '')) {
+    let lang = 'other';
+    if (/[가-힣㄰-㆏]/.test(ch)) lang = 'ko';
+    else if (/[A-Za-z0-9]/.test(ch)) lang = 'en';
+    if (lang === 'other') { pending += ch; continue; }
+    if (current && current.lang === lang) {
+      current.chars.push(pending, ch);
+    } else {
+      if (current) runs.push(current);
+      current = { lang, chars: [ch] };
+    }
+    pending = '';
+  }
+  if (current) runs.push(current);
   return runs
-    .map((run) => run.trim())
-    .filter(Boolean)
-    // Runs already ending in sentence punctuation (most of them, since a
-    // Korean sentence typically follows an English one) would otherwise
-    // pick up a second, redundant period from the join below.
-    .map((run) => (/[.!?]$/.test(run) ? run : `${run}.`))
-    .join(' ');
+    .map((run) => ({ lang: run.lang, text: run.chars.join('').trim() }))
+    .filter((run) => run.text);
 }
 
 function stopSpeaking() {
@@ -1092,16 +1112,18 @@ function speakSelection() {
   if (!('speechSynthesis' in window) || !State.selection) return;
   const button = $('#btnSelectionSpeak');
   if (State.speaking) { stopSpeaking(); return; }
-  const text = extractEnglishText(State.selection.quote);
-  if (!text) { toast('No English text in this selection.'); return; }
+  const runs = segmentSpeechRuns(State.selection.quote);
+  if (!runs.length) { toast('Nothing readable in this selection.'); return; }
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'en-US';
-  utterance.onend = stopSpeaking;
-  utterance.onerror = stopSpeaking;
+  runs.forEach((run, index) => {
+    const utterance = new SpeechSynthesisUtterance(run.text);
+    utterance.lang = run.lang === 'ko' ? 'ko-KR' : 'en-US';
+    utterance.onerror = stopSpeaking;
+    if (index === runs.length - 1) utterance.onend = stopSpeaking;
+    window.speechSynthesis.speak(utterance);
+  });
   State.speaking = true;
   if (button) { button.textContent = 'Stop'; button.setAttribute('aria-pressed', 'true'); }
-  window.speechSynthesis.speak(utterance);
 }
 
 async function shareMarkdown(content, name) {
