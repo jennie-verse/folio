@@ -9,15 +9,41 @@ const yamlString = (value) => JSON.stringify(normalize(value));
 const safeFilePart = (value) => normalize(value).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 90) || 'document';
 const quoteMarkdown = (value) => normalize(value).split('\n').map((line) => `> ${line}`).join('\n');
 
+// Finds the nearest heading (h1-h6) at or above `element` in reading order,
+// so a document-level or section-level note/highlight can carry a short
+// "which section is this near" label alongside its raw scroll position or
+// page/row. Best-effort only — plain text and CSV/PDF have no headings, so
+// this simply returns null there and the caller falls back to its existing
+// label. Never changes the stored quote/locator shape other formats rely on.
+function nearestHeading(body, element) {
+  if (!body || typeof body.querySelectorAll !== 'function') return null;
+  const headings = Array.from(body.querySelectorAll('h1,h2,h3,h4,h5,h6'));
+  if (!headings.length) return null;
+  const target = element || body;
+  let best = null;
+  for (const heading of headings) {
+    const order = heading.compareDocumentPosition(target);
+    // heading precedes (or contains) target: DOCUMENT_POSITION_FOLLOWING(4)
+    // set on `order` means target follows heading; CONTAINS(8) covers the
+    // element-is-the-heading case.
+    // eslint-disable-next-line no-bitwise
+    if (heading === target || (order & 4) || (order & 8)) best = heading;
+  }
+  const text = (best?.textContent || '').trim().normalize('NFC');
+  return text ? text.slice(0, 80) : null;
+}
+
 export function annotationLocation(body, node) {
   const element = node?.nodeType === 1 ? node : node?.parentElement;
   const page = element?.closest?.('.pdfpage')?.dataset?.page;
   if (page) return { page: Number(page), locationLabel: `p. ${page}` };
   const row = element?.closest?.('tr')?.querySelector?.('th')?.textContent?.trim();
   if (row) return { row: Number(row) || row, locationLabel: `row ${row}` };
+  const heading = nearestHeading(body, element);
   const max = Math.max(1, body.scrollHeight - body.clientHeight);
   const scrollRatio = Math.max(0, Math.min(1, body.scrollTop / max));
-  return { scrollRatio, locationLabel: `${Math.round(scrollRatio * 100)}%` };
+  const label = `${Math.round(scrollRatio * 100)}%`;
+  return heading ? { scrollRatio, heading, locationLabel: `${label} · ${heading}` } : { scrollRatio, locationLabel: label };
 }
 
 export function currentLocation(body) {
