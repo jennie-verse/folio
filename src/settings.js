@@ -7,10 +7,17 @@ export const CLEANUP_KEY = 'folio.v1.lastCleanupAt';   // tide key convention
 export const FONT_STEPS = [6, 8, 10, 12, 14, 17];
 export const DEFAULT_FS = 12;
 export const RETENTION_CHOICES = [7, 14, 30, 0];
+// Reading-surface background, offered from the per-document "Background"
+// picker (app.js openDocumentSheet) for text/Markdown/CSV only — see the
+// html[data-docbg] rules in assets/app.css for why HTML/PDF/image don't
+// get one. 'auto' means "follow the app's own Light/Dark/System choice",
+// i.e. no override at all.
+export const DOC_BG_CHOICES = ['auto', 'sepia', 'mint', 'sky', 'lavender', 'gray'];
 
 const DEFAULTS = Object.freeze({
   fs: DEFAULT_FS,
   theme: 'system',            // system | light | dark
+  docBg: 'auto',              // auto | sepia | mint | sky | lavender | gray
   retentionDays: 7,
   sort: 'recent',             // recent | added | title | size | kind
   stateFilter: 'all',         // all | pinned | needs | recent
@@ -20,7 +27,7 @@ const DEFAULTS = Object.freeze({
 });
 
 const RESTORE_KEYS = new Set([
-  'fs', 'theme', 'retentionDays', 'sort', 'stateFilter', 'typeFilter',
+  'fs', 'theme', 'docBg', 'retentionDays', 'sort', 'stateFilter', 'typeFilter',
   'releaseConfirmed', 'viewerHintSeen',
 ]);
 const SORTS = new Set(['recent', 'added', 'title', 'size', 'kind']);
@@ -36,6 +43,7 @@ function read() {
   cache = { ...DEFAULTS, ...(stored && typeof stored === 'object' ? stored : {}) };
   if (!FONT_STEPS.includes(Number(cache.fs))) cache.fs = DEFAULT_FS;
   if (!['system', 'light', 'dark'].includes(cache.theme)) cache.theme = 'system';
+  if (!DOC_BG_CHOICES.includes(cache.docBg)) cache.docBg = 'auto';
   if (!RETENTION_CHOICES.includes(Number(cache.retentionDays))) cache.retentionDays = 7;
   if (!Array.isArray(cache.typeFilter)) cache.typeFilter = [];
   return cache;
@@ -54,6 +62,7 @@ export function set(name, value) {
   write();
   if (name === 'fs') applyFontSize();
   if (name === 'theme') applyTheme();
+  if (name === 'docBg') applyDocBg();
 }
 
 /** Validate the portable preference subset. Tokens, cleanup timestamps and
@@ -66,6 +75,7 @@ export function normalizeBackupSettings(value) {
     const item = source[key];
     if (key === 'fs' && FONT_STEPS.includes(Number(item))) out.fs = Number(item);
     else if (key === 'theme' && ['system', 'light', 'dark'].includes(item)) out.theme = item;
+    else if (key === 'docBg' && DOC_BG_CHOICES.includes(item)) out.docBg = item;
     else if (key === 'retentionDays' && RETENTION_CHOICES.includes(Number(item))) out.retentionDays = Number(item);
     else if (key === 'sort' && SORTS.has(item)) out.sort = item;
     else if (key === 'stateFilter' && STATE_FILTERS.has(item)) out.stateFilter = item;
@@ -80,6 +90,7 @@ export function restorePortable(value) {
   write();
   applyFontSize();
   applyTheme();
+  applyDocBg();
   return all();
 }
 
@@ -104,6 +115,12 @@ export function applyTheme() {
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
 }
 
+export function applyDocBg() {
+  const choice = read().docBg;
+  if (choice === 'auto') document.documentElement.removeAttribute('data-docbg');
+  else document.documentElement.setAttribute('data-docbg', choice);
+}
+
 export function watchSystemTheme() {
   if (!media) return;
   const handler = () => { if (read().theme === 'system') applyTheme(); };
@@ -122,4 +139,5 @@ export function clearAll() {
   try { localStorage.removeItem(CLEANUP_KEY); } catch { /* private mode */ }
   applyFontSize();
   applyTheme();
+  applyDocBg();
 }

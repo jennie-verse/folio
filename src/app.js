@@ -575,6 +575,7 @@ async function showInViewer(record, blob, { transient = false } = {}) {
   $('#viewerTitle').textContent = record.title || record.fileName || '';
   $('#viewer').classList.remove('bars-hidden');
   const body = $('#viewerBody');
+  body.classList.toggle('themable', DOC_BG_KINDS.has(record.kind));
   clear(body);
   body.appendChild(el('div', { class: 'empty', text: 'Opening…' }));
   show('viewer');
@@ -813,6 +814,16 @@ function markReadOnce() {
 /* ── document text size: pinch, with a single-pointer alternative ──────── */
 
 const ZOOM_KINDS = new Set(['text', 'markdown', 'html']);
+// Background theming (Document settings, "Background") — text/Markdown/CSV
+// render straight into .vbody under folio's own styling, so the --bg/--text
+// override in assets/app.css (html[data-docbg] .vbody.themable) applies
+// cleanly. HTML keeps its own document design (Read mode is built to
+// preserve it); PDF/image are rendered bitmaps with nothing to recolor.
+const DOC_BG_KINDS = new Set(['text', 'markdown', 'csv']);
+const DOCBG_OPTIONS = [
+  ['auto', 'Auto'], ['sepia', 'Sepia'], ['mint', 'Mint'],
+  ['sky', 'Sky'], ['lavender', 'Lavender'], ['gray', 'Gray'],
+];
 const DOC_STEPS = [6, 8, 10, 12, 15, 19];
 
 function textZoomAvailable() {
@@ -1342,6 +1353,24 @@ function openDocumentSheet() {
       });
       panel.appendChild(segment);
     }
+    if (DOC_BG_KINDS.has(doc.kind)) {
+      panel.appendChild(el('p', { class: 'small muted', text: 'Background' }));
+      const grid = el('div', { class: 'bggrid', role: 'group', 'aria-label': 'Background' });
+      DOCBG_OPTIONS.forEach(([key, label]) => {
+        const button = el('button', {
+          type: 'button', class: 'bg-swatch', dataset: { bg: key },
+          'aria-pressed': String(settings.get('docBg') === key),
+        }, [el('span', { class: 'bg-swatch-dot' }), el('span', { class: 'small', text: label })]);
+        button.addEventListener('click', () => {
+          settings.set('docBg', key);
+          grid.querySelectorAll('.bg-swatch').forEach((node) => {
+            node.setAttribute('aria-pressed', String(node.dataset.bg === key));
+          });
+        });
+        grid.appendChild(button);
+      });
+      panel.appendChild(grid);
+    }
     // A file opened from inside a package has no library record to pin,
     // rename or export as an original.
     if (State.transient) {
@@ -1781,6 +1810,7 @@ function wire() {
   $('#btnBack').addEventListener('click', () => { leaveViewer(); });
   $('#btnLibraryToggle').addEventListener('click', toggleLibraryRail);
   $('#viewerTitle').addEventListener('click', openDocumentSheet);
+  $('#btnDocSettings').addEventListener('click', openDocumentSheet);
   $('#btnAnnotations').addEventListener('click', openAnnotationsSheet);
   $('#annotationToolbar').addEventListener('pointerdown', (event) => event.preventDefault());
   $('#btnSelectionHighlight').addEventListener('click', highlightSelection);
@@ -1864,6 +1894,7 @@ function wire() {
 async function boot() {
   settings.applyFontSize();
   settings.applyTheme();
+  settings.applyDocBg();
   settings.watchSystemTheme();
   paintChips();
   wire();

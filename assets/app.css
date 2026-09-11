@@ -229,9 +229,36 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .seg button[aria-pressed="true"]{font-weight:700}
 .seg button[aria-pressed="true"]::before{content:"";position:absolute;inset:7px 0;background:var(--rose-tint);z-index:-1}
 
+/* Document settings → Background (text/Markdown/CSV; see DOC_BG_KINDS in
+   app.js and the html[data-docbg] rules below). Swatch colors are declared
+   once here by data-bg, matched to the same values the reading surface
+   itself uses, so this picker never drifts from what it actually applies. */
+.bggrid{display:grid;grid-template-columns:repeat(3, 1fr);gap:8px}
+.bg-swatch{flex-direction:column;gap:4px;padding:8px 4px;min-height:64px}
+.bg-swatch-dot{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:var(--bg)}
+.bg-swatch[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--rose-ink)}
+.bg-swatch[data-bg="sepia"] .bg-swatch-dot{background:#F6EFE4}
+.bg-swatch[data-bg="mint"] .bg-swatch-dot{background:#EAF5EE}
+.bg-swatch[data-bg="sky"] .bg-swatch-dot{background:#EAF2F8}
+.bg-swatch[data-bg="lavender"] .bg-swatch-dot{background:#F3EFF8}
+.bg-swatch[data-bg="gray"] .bg-swatch-dot{background:#F1F1EE}
+
 .vbody{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
-  padding-left:var(--safe-l);padding-right:var(--safe-r);background:var(--bg)}
+  padding-left:var(--safe-l);padding-right:var(--safe-r);background:var(--bg);color:var(--text)}
 .vbody.pad{padding:12px}
+/* Reading background — text/Markdown/CSV only (Document settings, "Background").
+   `.themable` is added by app.js only for those kinds, so PDF/HTML/image stay on
+   the app's own --bg regardless of this choice: PDF/image have no page text to
+   theme, and an HTML document already carries its own design (deliberately kept
+   in Read mode) that a forced background would fight rather than complement.
+   Overriding --bg/--text here (the SAME custom properties the rest of this file
+   already reads) is what lets .doctext, table.csv and everything else under
+   .vbody pick the new colors up with no separate ruleset to keep in sync. */
+html[data-docbg="sepia"] .vbody.themable{--bg:#F6EFE4;--card:#FBF6EE;--text:#3B2F22}
+html[data-docbg="mint"] .vbody.themable{--bg:#EAF5EE;--card:#F3FAF5;--text:#223B2E}
+html[data-docbg="sky"] .vbody.themable{--bg:#EAF2F8;--card:#F3F8FB;--text:#1E3140}
+html[data-docbg="lavender"] .vbody.themable{--bg:#F3EFF8;--card:#F9F6FC;--text:#34293D}
+html[data-docbg="gray"] .vbody.themable{--bg:#F1F1EE;--card:#F8F8F6;--text:#2B2B28}
 .doctext{font-size:var(--fs-doc);line-height:1.65;word-break:keep-all;overflow-wrap:anywhere}
 .doctext pre,pre.plain{
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
