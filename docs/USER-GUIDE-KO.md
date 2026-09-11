@@ -81,8 +81,9 @@
 
 ### 선택·하이라이트·메모
 
-- PDF의 실제 텍스트, TXT, Markdown, CSV 등에서 글자를 선택하면 Apple의
-  `Copy`, `Look Up` 같은 기본 메뉴를 그대로 사용할 수 있습니다.
+- PDF의 실제 텍스트, TXT, Markdown, CSV, HTML(`Read`/`Run` 모드 포함) 등에서
+  글자를 선택하면 Apple의 `Copy`, `Look Up` 같은 기본 메뉴를 그대로 사용할 수
+  있습니다.
 - 선택이 유지되는 동안 Folio 작업 막대에서 `Highlight`, `Add note`,
   `Export .md`를 선택할 수 있습니다.
 - 상단의 `▧` 또는 제목 메뉴의 `Notes`에서 저장한 하이라이트와 메모를 보고,

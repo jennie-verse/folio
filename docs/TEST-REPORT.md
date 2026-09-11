@@ -152,3 +152,96 @@ DOM 기능들처럼 `.test.html`/실브라우저 확인 대상), 아래처럼 �
 - [ ] 소제목이 많은 실제 긴 Markdown/HTML 문서에서 heading 라벨이 항상
       가장 가까운 소제목을 정확히 가리키는지(코드 리뷰로는 확인, 다양한
       실문서로는 미확인)
+
+## 2026-09-11 — md/html/pdf 형식별 재점검, HTML 선택 기능 오류 수정
+
+이전 점검(위 항목)에서 "HTML도 다른 형식과 동등하게 동작한다"고 적었지만,
+사용자가 md/html/pdf 세 형식을 다시 꼼꼼히 봐 달라고 요청해 실제
+Chromium으로 하나씩 재확인한 결과 HTML만 실제로는 동작하지 않는 심각한
+문제를 발견해 고쳤습니다.
+
+**발견한 문제**
+
+- **HTML 문서에서 텍스트 선택 → 하이라이트/메모가 전혀 동작하지 않음.**
+  HTML 문서의 실제 읽기 화면(`Read`/`Run`)은 보안을 위해 별도 origin의
+  샌드박스 `<iframe>` 안에서 렌더링되는데, 앱의 선택 감지 코드는 바깥
+  문서의 `window.getSelection()`/`selectionchange`만 봅니다. 그 결과
+  사용자가 글자를 드래그해 화면에는 파랗게 선택 표시가 뜨는데도
+  `Highlight`/`Add note` 작업 막대는 전혀 나타나지 않았습니다(실기기·배포본
+  모두 동일 재현). PDF·TXT·Markdown·CSV는 실제 문서 내용이 바깥 문서에
+  바로 그려지므로 이 문제가 없었습니다.
+- **위 문제를 고치던 중 별개의 기존 버그도 발견**: HTML 문서를 열 때마다
+  내부적으로 두 번 그려지고 있었습니다(`preview.js`의 `mount()`가
+  `frame`의 `load` 이벤트와 호스트의 `bootstrap-ready` 응답 양쪽에서 각각
+  한 번씩, 총 두 번 렌더 메시지를 보내던 구조적 결함). 화면이 열리자마자
+  한 번 깜빡이거나, Run 모드 문서의 스크립트가 한 번 재시작되는 형태로
+  나타났습니다.
+
+**고친 것**
+
+- `src/preview.js` — 문서가 자기 자신의 `selectionchange`를 감지해 인용문·
+  앞뒤 문맥·가장 가까운 소제목·스크롤 비율을 바깥으로 전달하도록
+  `instrument()`를 확장(`postSel`/`selCtx`/`nearestHeading`/`findRange`).
+  저장된 하이라이트는 CSS Custom Highlight API로 문서 안에서 직접 다시
+  칠하도록(`applyHL`) 했고, 그 색상 규칙(`highlightStyle()`)도 함께
+  주입합니다. `mount()`에 `onSelection`/`onReady`/`applyHighlights()`/
+  `locate()`/`clearSelection()`을 추가. **동시에 이중 렌더 버그의 원인이던
+  `load` 이벤트 리스너를 제거**(호스트의 `bootstrap-ready` 응답 하나로
+  충분).
+- `preview-host.html` — 위 새 메시지 종류(`selection`/`highlights`/
+  `locate`/`clear-selection`)를 양방향으로 중계하도록 allowlist 보강.
+- `src/annotation.js` — `captureFrameSelection()` 추가. 프레임에서 온
+  선택을 기존 `captureSelection()`과 동일한 모양으로 변환해, 이후 저장·
+  내보내기·Journal 등 모든 하위 로직이 출처(바깥 문서 vs iframe)를 몰라도
+  되게 함.
+- `src/handlers/html.js` — 위 새 기능을 실제로 연결(`onSelection`,
+  `onReady`, `applyHighlights`, `scrollToAnnotation`, `currentLocation`,
+  `clearFrameSelection`). 기존 저장 데이터·다른 형식 동작에는 영향 없음.
+- `src/app.js` — `reportFrameSelection`(ctx로 노출), `paintAnnotations`가
+  `State.view?.applyHighlights?.()`도 호출, `createAnnotation`의 위치
+  계산과 `jumpToAnnotation`(Go to)의 이동 로직이 HTML의 프레임 기반 위치도
+  다루도록 보강.
+- `sw.js`/`src/version.js` — 캐시 버전 두 단계 갱신
+  (`2026.09.11-htmlannotate1` → 수정 커밋 누락분 재수정 `htmlannotate2`).
+
+**자동 테스트**: `npm test` 96/96 통과, `npm run test:syntax` 통과. 기존
+"이중 렌더" 관련 자동 검사(`every inner-frame message type...`,
+`a mounted document and its instrumentation share one session id`)도
+모두 그대로 통과.
+
+**실제 GitHub Pages(HTTPS) 배포본에서 직접 확인한 것**
+
+- 배포 후 재확인 과정에서 캐시 버전을 한 번 올리는 것을 깜빡해 Service
+  Worker가 고친 파일을 계속 이전 버전으로 캐시하는 바람에, 재배포했는데도
+  브라우저에서 옛 코드가 계속 실행되는 상황을 겪었습니다 — 버전을 다시
+  올리고서야 실제로 고쳐졌음을 확인할 수 있었습니다. 앞으로 여러 커밋에
+  걸쳐 같은 배포를 손볼 때는 **커밋마다** 캐시 버전을 올려야 함을 다시
+  확인했습니다.
+- 메시지 로그로 직접 확인: 이전에는 `render` 관련 메시지(`host-ready`)가
+  한 문서당 두 번 왔지만, 수정 후에는 정확히 한 번만 옵니다.
+- HTML 문서에서 "Resource Read Test" 제목을 드래그 선택 → `Highlight`/
+  `Add note`/`Export .md` 작업 막대가 정상적으로 나타남 → `Highlight` 저장
+  → 문서 안에 분홍색으로 실제 칠해짐 → 페이지를 완전히 새로고침해도 다시
+  열면 그대로 칠해짐(캐시·재구성 후에도 유지) → Notes 시트에
+  `Highlight · 0% · Resource Read Test`로 소제목까지 포함해 표시.
+- 같은 문서에서 `Add note here`(선택 없는 전체 문서 메모)도 저장되고
+  목록에 나타남, `Go to` 클릭 시 오류 없음.
+- 회귀 확인: 같은 세션에서 Markdown·PDF 문서도 다시 선택→하이라이트를
+  테스트해 정상 동작·콘솔 오류 0건 확인(공유 코드인 `annotation.js`,
+  `app.js`를 함께 고쳤으므로).
+- 테스트에 쓴 문서 3개(`resource-read.html/.md`, `three-pages.pdf`)는
+  확인 후 모두 삭제해 실제 라이브러리를 비운 상태로 되돌렸습니다.
+
+**Pending — 실기기 확인 필요**
+
+- [ ] 실제 iPhone/iPad Safari에서 HTML 문서 텍스트 선택 제스처(길게
+      눌러 선택 vs 드래그)가 자동화 도구의 마우스 드래그와 동일하게
+      동작하는지
+- [ ] 이전 보고서의 "unknown error fetching script" 콘솔 오류 — 이번에
+      실제 HTTPS 배포본에서 콘솔 오류 0건으로 재확인되어 로컬 plain-HTTP
+      테스트 환경(브라우저 자동화 도구 자체의 요청 차단) 특유의 현상이었음이
+      확인됨. 실기기에서도 재현되지 않는지 최종 확인 권장.
+- [ ] PDF는 텍스트 레이어 선택 하이라이트가 이미 지원되나, 페이지 넘길 때
+      가상화(뷰포트 밖 페이지는 DOM에서 제거)로 인해 화면 밖 페이지의
+      저장된 하이라이트가 다시 스크롤해 돌아왔을 때 항상 즉시 다시
+      칠해지는지 여러 페이지 문서로 추가 확인 권장
