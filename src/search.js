@@ -19,12 +19,21 @@ async function loadTextIndex() {
   return map;
 }
 
-export async function filterDocuments(docs, { query, stateFilter, typeFilter, retentionDays }) {
+export async function filterDocuments(docs, { query, stateFilter, typeFilter, tagFilter, folderFilter, retentionDays }) {
   let list = docs.slice();
 
   if (Array.isArray(typeFilter) && typeFilter.length) {
     list = list.filter((doc) => typeFilter.includes(doc.kind));
   }
+
+  // A document must carry EVERY listed tag (AND, not OR) — matches how
+  // "Filter by type" already reads (every checked kind narrows further).
+  if (Array.isArray(tagFilter) && tagFilter.length) {
+    list = list.filter((doc) => tagFilter.every((tag) => (doc.tags || []).includes(tag)));
+  }
+
+  if (folderFilter === 'unsorted') list = list.filter((doc) => !doc.folderId);
+  else if (folderFilter) list = list.filter((doc) => doc.folderId === folderFilter);
 
   if (stateFilter === 'pinned') list = list.filter((doc) => doc.pinned);
   else if (stateFilter === 'needs') list = list.filter((doc) => doc.released);

@@ -14,6 +14,7 @@ import * as syncRunner from './sync-runner.js';
 import * as journal from './journal.js';
 import * as annotation from './annotation.js';
 import * as pkg from './package.js';
+import * as folders from './folders.js';
 import { TAG_OF, KINDS, detect } from './detect.js';
 import { APP_BUILD } from './version.js';
 import { createSessionTracker } from './activity-session.js';
@@ -37,6 +38,7 @@ const HANDLERS = {
 
 const State = {
   docs: [],
+  folders: [],         // cached for the library row badge and the "Move to folder" sheet
   current: null,
   view: null,          // the mounted handler instance
   transient: false,    // true while showing a file that lives inside a package
@@ -117,6 +119,7 @@ function toggleLibraryRail() {
 async function refreshLibrary() {
   try {
     State.docs = await store.listDocuments();
+    State.folders = await folders.listFolders();
     State.storageOk = true;
   } catch {
     State.storageOk = false;
@@ -129,16 +132,28 @@ async function refreshLibrary() {
 
   if (!State.storageOk) { stateHost.appendChild(library.storageError()); return; }
 
+  // A folder (or the 'unsorted' pseudo-folder) picked before it was renamed,
+  // deleted, or on a device restored from an older backup that never had it,
+  // falls back to "All folders" instead of silently showing zero documents.
+  let folderFilter = settings.get('folderFilter');
+  if (folderFilter && folderFilter !== 'unsorted' && !State.folders.some((folder) => folder.id === folderFilter)) {
+    folderFilter = null;
+    settings.set('folderFilter', null);
+  }
+
   const query = $('#q').value;
   const days = settings.get('retentionDays');
   const { list: filtered } = await search.filterDocuments(State.docs, {
     query,
     stateFilter: settings.get('stateFilter'),
     typeFilter: settings.get('typeFilter'),
+    tagFilter: settings.get('tagFilter'),
+    folderFilter,
     retentionDays: days,
   });
   const ordered = search.sortDocuments(filtered, settings.get('sort'));
   const annotationCounts = await store.annotationCounts();
+  const folderNames = new Map(State.folders.map((folder) => [folder.id, folder.name]));
 
   ordered.forEach((doc) => {
     list.appendChild(el('li', {}, [library.documentRow(doc, {
@@ -149,6 +164,7 @@ async function refreshLibrary() {
       selected: State.selectedIds.has(doc.id),
       onToggleSelect: toggleDocSelection,
       annotationCount: annotationCounts.get(doc.id),
+      folderName: doc.folderId ? folderNames.get(doc.folderId) : null,
     })]));
   });
 
@@ -158,6 +174,8 @@ async function refreshLibrary() {
     stateHost.appendChild(library.nothingHere(() => {
       settings.set('stateFilter', 'all');
       settings.set('typeFilter', []);
+      settings.set('tagFilter', []);
+      settings.set('folderFilter', null);
       paintChips();
       refreshLibrary();
     }));
@@ -376,6 +394,7 @@ function openRowSheet(doc) {
     { label: doc.pinned ? 'Unpin' : 'Pin', run: () => togglePin(doc) },
     { label: 'Rename', run: () => renameDocument(doc) },
     { label: 'Edit tags', run: () => editTags(doc) },
+    { label: 'Move to folder', run: () => openMoveToFolderSheet(doc) },
     { label: 'Export original', disabled: doc.released, run: () => exportOriginal(doc) },
     { label: 'Delete', run: () => deleteDocument(doc) },
   ]);
@@ -1224,6 +1243,8 @@ function openLibraryMenu() {
     panel.appendChild(el('div', { class: 'row' }, [
       el('button', { type: 'button', text: 'Sort', onclick: () => { close(); openSortPicker(); } }),
       el('button', { type: 'button', text: 'Filter by type', onclick: () => { close(); openTypeFilterSheet(); } }),
+      el('button', { type: 'button', text: 'Filter by tag', onclick: () => { close(); openTagFilterSheet(); } }),
+      el('button', { type: 'button', text: 'Folders', onclick: () => { close(); openFoldersSheet(); } }),
       el('button', { type: 'button', text: 'My highlights and notes', onclick: () => { close(); openLibraryAnnotationsSheet(); } }),
     ]));
   });
@@ -1255,6 +1276,145 @@ function openTypeFilterSheet() {
     });
     panel.appendChild(menu);
     panel.appendChild(el('button', { type: 'button', text: 'Show all types', onclick: () => { settings.set('typeFilter', []); close(); refreshLibrary(); } }));
+  });
+}
+
+/** Every tag actually in use, across every document — not a fixed list, since
+    tags are freeform (editTags). A document must carry every tag checked
+    here (AND), matching how Filter by type already reads. */
+function allTagsInUse() {
+  const tags = new Set();
+  State.docs.forEach((doc) => (doc.tags || []).forEach((tag) => tags.add(tag)));
+  return [...tags].sort((a, b) => a.localeCompare(b, ['ko', 'en']));
+}
+
+function openTagFilterSheet() {
+  const available = allTagsInUse();
+  if (!available.length) { toast('No tags yet. Add one from a document’s Edit tags.'); return; }
+  const selected = settings.get('tagFilter');
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'Filter by tag' }));
+    const menu = el('menu');
+    available.forEach((tag) => {
+      const on = selected.includes(tag);
+      menu.appendChild(el('li', {}, [el('button', {
+        type: 'button', text: `#${tag}${on ? ' ·' : ''}`, 'aria-pressed': String(on),
+        onclick: () => {
+          const next = on ? selected.filter((value) => value !== tag) : selected.concat(tag);
+          settings.set('tagFilter', next);
+          close();
+          refreshLibrary();
+        },
+      })]));
+    });
+    panel.appendChild(menu);
+    panel.appendChild(el('button', { type: 'button', text: 'Show all tags', onclick: () => { settings.set('tagFilter', []); close(); refreshLibrary(); } }));
+  });
+}
+
+/** Pick, create, rename or delete a folder. Deleting one moves its documents
+    to Unsorted (folders.deleteFolder) — never deletes the documents. */
+function openFoldersSheet() {
+  const current = settings.get('folderFilter');
+  const counts = folders.folderDocCounts(State.docs);
+
+  function selectFolder(id) {
+    settings.set('folderFilter', id);
+    refreshLibrary();
+  }
+
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'Folders' }));
+    const menu = el('menu');
+
+    function folderRow(id, label, count) {
+      const on = current === id;
+      const row = el('li', { class: 'row' }, [
+        el('button', {
+          class: 'grow', type: 'button', text: `${label} (${count || 0})${on ? ' ·' : ''}`,
+          'aria-pressed': String(on),
+          onclick: () => { selectFolder(id); close(); },
+        }),
+      ]);
+      if (id && id !== 'unsorted') {
+        row.appendChild(el('button', {
+          type: 'button', text: 'Rename', 'aria-label': `Rename ${label}`,
+          onclick: async () => {
+            const next = await promptText('Rename folder', 'Folder name', label);
+            if (next === null) return;
+            try { await folders.renameFolder(id, next); } catch (error) { toast(error.message); return; }
+            close();
+            // Refresh (which repopulates State.folders from IndexedDB) BEFORE
+            // reopening the sheet — reopening first re-read the still-stale
+            // State.folders that was current when this sheet first drew,
+            // so a rename/create/delete looked like it silently did nothing
+            // until some unrelated refresh happened to catch up.
+            await refreshLibrary();
+            openFoldersSheet();
+          },
+        }));
+        row.appendChild(el('button', {
+          type: 'button', text: 'Delete', 'aria-label': `Delete ${label}`,
+          onclick: async () => {
+            const ok = await confirmDialog({
+              title: 'Delete this folder?',
+              message: `"${label}" will be removed. Its documents move to Unsorted — nothing is deleted.`,
+              confirmLabel: 'Delete', danger: true,
+            });
+            if (!ok) return;
+            await folders.deleteFolder(id);
+            if (current === id) settings.set('folderFilter', null);
+            close();
+            await refreshLibrary();
+            openFoldersSheet();
+          },
+        }));
+      }
+      return row;
+    }
+
+    menu.appendChild(folderRow(null, 'All folders', State.docs.length));
+    menu.appendChild(folderRow('unsorted', 'Unsorted', counts.get(null) || 0));
+    State.folders.forEach((folder) => menu.appendChild(folderRow(folder.id, folder.name, counts.get(folder.id) || 0)));
+    panel.appendChild(menu);
+
+    panel.appendChild(el('button', {
+      type: 'button', text: '+ New folder',
+      onclick: async () => {
+        const name = await promptText('New folder', 'Folder name', '');
+        if (name === null) return;
+        try { await folders.createFolder(name); } catch (error) { toast(error.message); return; }
+        close();
+        await refreshLibrary();
+        openFoldersSheet();
+      },
+    }));
+  });
+}
+
+/** The current document's folder, from its own row sheet. */
+function openMoveToFolderSheet(doc) {
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'Move to folder' }));
+    const menu = el('menu');
+    const setFolder = async (id) => {
+      await store.patchDocument(doc.id, { folderId: id });
+      close();
+      refreshLibrary();
+    };
+    menu.appendChild(el('li', {}, [el('button', {
+      type: 'button', text: `Unsorted${!doc.folderId ? ' ·' : ''}`, 'aria-pressed': String(!doc.folderId),
+      onclick: () => setFolder(null),
+    })]));
+    State.folders.forEach((folder) => {
+      const on = doc.folderId === folder.id;
+      menu.appendChild(el('li', {}, [el('button', {
+        type: 'button', text: `${folder.name}${on ? ' ·' : ''}`, 'aria-pressed': String(on),
+        onclick: () => setFolder(folder.id),
+      })]));
+    });
+    panel.appendChild(menu);
+    if (!State.folders.length) panel.appendChild(el('p', { class: 'small muted', text: 'No folders yet — create one from the library’s "..." menu.' }));
   });
 }
 

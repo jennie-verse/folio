@@ -71,6 +71,7 @@ export async function build() {
   const readingStates = await db.readingStates.toArray();
   const annotations = await db.annotations.toArray();
   const bookmarks = await db.bookmarks.toArray();
+  const folderRows = await db.folders.toArray();
 
   const envelope = {
     format: FORMAT,
@@ -81,6 +82,11 @@ export async function build() {
     readingStates,
     annotations,
     bookmarks,
+    // Additive since store.js v2 (2026-09-11) — schemaVersion stays 1, so a
+    // backup made before folders existed still restores fine (parsed.folders
+    // is simply undefined below) and one made after still opens on an older
+    // app build, which just never reads this extra field.
+    folders: folderRows,
     journalActivity: exportActivityLedger(),
     journalSessions: exportSessionLedger(),
     settings: settings.all(),
@@ -191,8 +197,23 @@ export function validateAndNormalize(parsed) {
   const journalSessions = parsed.journalSessions === undefined
     ? undefined
     : validateSessionLedger(parsed.journalSessions);
+  // Optional — absent entirely in a backup made before folders existed.
+  // A document referencing a folder id that turns out missing just shows as
+  // Unsorted (library.js only renders the folder badge when the lookup
+  // succeeds); not treated as a validation failure.
+  const folderIds = new Set();
+  const folderRows = Array.isArray(parsed.folders) ? parsed.folders.map((row, index) => {
+    if (!row || typeof row !== 'object') throw new Error(`Invalid folder ${index + 1}.`);
+    const id = String(row.id || '');
+    if (!id || folderIds.has(id)) throw new Error('Duplicate or missing folder id.');
+    folderIds.add(id);
+    const name = String(row.name || '').trim().slice(0, 60);
+    if (!name) throw new Error(`Invalid folder name for ${id}.`);
+    return { id, name, order: Number.isFinite(row.order) ? row.order : index, createdAt: Number(row.createdAt) || now };
+  }) : [];
   return {
     documents, documentFiles, packageAssets, docText, readingStates, annotations, bookmarks,
+    folders: folderRows,
     journalActivity, journalSessions,
     settings: settings.normalizeBackupSettings(parsed.settings),
   };

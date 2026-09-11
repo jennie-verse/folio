@@ -25,6 +25,14 @@ db.version(1).stores({
   meta: 'key',
 });
 
+// v2 (2026-09-11): folders. Documents keep whatever folderId they already
+// had (undefined for every pre-existing row, meaning Unsorted) — Dexie's
+// version bump only adds the new index and table, it never rewrites data.
+db.version(2).stores({
+  documents: 'id, lastTouchedAt, updatedAt, addedAt, fileHash, kind, *tags, deletedAt, pinned, folderId',
+  folders: 'id, order, createdAt',
+});
+
 export const SCHEMA_VERSION = 1;
 
 export async function open() {
@@ -358,13 +366,14 @@ export async function deleteEverything() {
 /** Replace every portable document table in one Dexie transaction. All Blob
     construction and validation must already be complete before this starts. */
 export async function replaceFromBackup(data) {
-  return db.transaction('rw',
+  await db.transaction('rw',
     db.documents, db.documentFiles, db.packageAssets, db.docText,
-    db.readingStates, db.annotations, db.bookmarks,
+    db.readingStates, db.annotations, db.bookmarks, db.folders,
     async () => {
       await Promise.all([
         db.documents.clear(), db.documentFiles.clear(), db.packageAssets.clear(),
         db.docText.clear(), db.readingStates.clear(), db.annotations.clear(), db.bookmarks.clear(),
+        db.folders.clear(),
       ]);
       if (data.documents.length) await db.documents.bulkPut(data.documents);
       if (data.documentFiles.length) await db.documentFiles.bulkPut(data.documentFiles);
@@ -373,7 +382,12 @@ export async function replaceFromBackup(data) {
       if (data.readingStates.length) await db.readingStates.bulkPut(data.readingStates);
       if (data.annotations.length) await db.annotations.bulkPut(data.annotations);
       if (data.bookmarks.length) await db.bookmarks.bulkPut(data.bookmarks);
+      if (data.folders && data.folders.length) await db.folders.bulkPut(data.folders);
     });
+  // Was previously unreachable (after the transaction's own `return`), so a
+  // restore never refreshed the cached "N hl · N notes" library badges —
+  // they kept showing whatever counts were cached from before the restore
+  // until something else happened to invalidate them.
   invalidateAnnotationCounts();
 }
 

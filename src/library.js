@@ -183,7 +183,7 @@ function annotationBadgeText(count) {
 /** One list row. Tap opens, long press opens the row sheet.
     In selection mode (`selectMode: true`), tap toggles selection instead —
     used by "Export selected .md" (folio multi-export plan). */
-export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = false, selected = false, onToggleSelect, annotationCount }) {
+export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = false, selected = false, onToggleSelect, annotationCount, folderName }) {
   const row = el('button', { class: keepClass(doc) + (selectMode && selected ? ' selected' : ''), type: 'button' });
   if (selectMode) {
     row.setAttribute('aria-pressed', String(selected));
@@ -193,8 +193,12 @@ export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = f
     el('div', { class: 'dr-title', text: doc.title || doc.fileName || 'Untitled' }),
     el('div', { class: 'dr-sub', text: metaLine(doc) }),
   ]);
+  if ((doc.tags || []).length) {
+    main.appendChild(el('div', { class: 'dr-tags', text: doc.tags.map((tag) => `#${tag}`).join(' ') }));
+  }
   row.appendChild(main);
 
+  if (folderName) row.appendChild(el('span', { class: 'badge folder', text: folderName }));
   if (doc.pinned) row.appendChild(el('span', { class: 'badge pin', text: 'Pinned' }));
   else if (doc.released) row.appendChild(el('span', { class: 'badge needs', text: 'Needs file' }));
   // The countdown is about a local copy, so a released document never shows it.

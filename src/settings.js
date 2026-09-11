@@ -22,12 +22,14 @@ const DEFAULTS = Object.freeze({
   sort: 'recent',             // recent | added | title | size | kind
   stateFilter: 'all',         // all | pinned | needs | recent
   typeFilter: [],             // empty = every kind
+  tagFilter: [],               // empty = every tag; a document must carry ALL listed tags
+  folderFilter: null,          // null = All folders; 'unsorted' or a folder id
   releaseConfirmed: false,    // the first automatic release asks once
   viewerHintSeen: false,
 });
 
 const RESTORE_KEYS = new Set([
-  'fs', 'theme', 'docBg', 'retentionDays', 'sort', 'stateFilter', 'typeFilter',
+  'fs', 'theme', 'docBg', 'retentionDays', 'sort', 'stateFilter', 'typeFilter', 'tagFilter',
   'releaseConfirmed', 'viewerHintSeen',
 ]);
 const SORTS = new Set(['recent', 'added', 'title', 'size', 'kind']);
@@ -46,6 +48,11 @@ function read() {
   if (!DOC_BG_CHOICES.includes(cache.docBg)) cache.docBg = 'auto';
   if (!RETENTION_CHOICES.includes(Number(cache.retentionDays))) cache.retentionDays = 7;
   if (!Array.isArray(cache.typeFilter)) cache.typeFilter = [];
+  if (!Array.isArray(cache.tagFilter)) cache.tagFilter = [];
+  // Not further validated here — settings.js has no DB access to check the
+  // id is still real. refreshLibrary() falls back to "All folders" itself
+  // if the referenced folder (or 'unsorted') no longer matches anything.
+  if (cache.folderFilter !== null && typeof cache.folderFilter !== 'string') cache.folderFilter = null;
   return cache;
 }
 
@@ -80,6 +87,7 @@ export function normalizeBackupSettings(value) {
     else if (key === 'sort' && SORTS.has(item)) out.sort = item;
     else if (key === 'stateFilter' && STATE_FILTERS.has(item)) out.stateFilter = item;
     else if (key === 'typeFilter' && Array.isArray(item)) out.typeFilter = [...new Set(item.filter((kind) => TYPES.has(kind)))];
+    else if (key === 'tagFilter' && Array.isArray(item)) out.tagFilter = [...new Set(item.map((tag) => String(tag)).filter(Boolean))].slice(0, 20);
     else if ((key === 'releaseConfirmed' || key === 'viewerHintSeen') && typeof item === 'boolean') out[key] = item;
   }
   return out;

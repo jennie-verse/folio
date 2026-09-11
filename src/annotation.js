@@ -60,8 +60,26 @@ export function captureSelection(body, selection = window.getSelection()) {
   const quote = normalize(selection.toString()).trim();
   if (!quote) return null;
   const location = annotationLocation(body, range.startContainer);
-  const context = normalize(body.innerText || body.textContent || '');
-  const at = context.indexOf(quote);
+  // The prefix/suffix exist so findTextRange can tell apart several
+  // occurrences of the same quote — but body.innerText.indexOf(quote) always
+  // resolved to wherever that text FIRST appears anywhere in the document,
+  // not the occurrence actually selected. For a short recurring phrase (a
+  // vocabulary term repeated across sections, a code snippet reused in
+  // several notes) that silently recorded the wrong neighborhood, and
+  // findTextRange later highlighted that unrelated first occurrence instead
+  // of the one the reader actually picked — reported 2026-09-11 against a
+  // long document where later highlights kept appearing back at the start.
+  // Walking to the Range's own position in the SAME text this searches
+  // (textNodes(body), not innerText — see the .hidden exclusion note below)
+  // anchors prefix/suffix to the real spot every time.
+  const nodes = textNodes(body);
+  const text = nodes.map((node) => node.nodeValue).join('');
+  let cursor = 0;
+  let at = -1;
+  for (const node of nodes) {
+    if (node === range.startContainer) { at = cursor + range.startOffset; break; }
+    cursor += node.nodeValue.length;
+  }
   return {
     quote,
     locator: {
@@ -69,8 +87,8 @@ export function captureSelection(body, selection = window.getSelection()) {
       ...location,
       textQuote: {
         exact: quote,
-        prefix: at >= 0 ? context.slice(Math.max(0, at - 48), at) : '',
-        suffix: at >= 0 ? context.slice(at + quote.length, at + quote.length + 48) : '',
+        prefix: at >= 0 ? text.slice(Math.max(0, at - 48), at) : '',
+        suffix: at >= 0 ? text.slice(at + quote.length, at + quote.length + 48) : '',
       },
     },
   };
@@ -113,7 +131,15 @@ function textNodes(root) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (!node.nodeValue || !node.nodeValue.length) return NodeFilter.FILTER_REJECT;
-      if (node.parentElement?.closest('script,style,textarea,input,button,.annotation-toolbar')) return NodeFilter.FILTER_REJECT;
+      // .hidden excludes markdown.js's and html.js's Source-mode <pre> — a
+      // full second copy of the raw text (backticks, asterisks and all) that
+      // sits right next to the rendered view, toggled visible only in Source
+      // mode. Left in, that duplicate silently doubled the search space: a
+      // quote unique in the rendered article could still collide with an
+      // unrelated match inside the raw copy, or — combined with the
+      // prefix/suffix bug fixed in captureSelection above — mask which
+      // occurrence was the real, selected one.
+      if (node.parentElement?.closest('script,style,textarea,input,button,.annotation-toolbar,.hidden')) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     },
   });

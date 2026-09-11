@@ -24,11 +24,28 @@
 | 요소 | 뜻 |
 |---|---|
 | 검색창 **Search documents** | 제목·파일명·태그·본문을 한 번에 찾습니다 |
-| **⇅ Sort** | 정렬 — 최근 열람 / 추가일 / 제목 / 크기 / 형식 |
-| **⌗ Filter by type** | 형식으로 걸러 보기 |
+| **⋯ Library** | `Sort` · `Filter by type` · `Filter by tag` · `Folders` · `My highlights and notes`를 모아 놓은 메뉴 |
 | **☑ Select** | 여러 문서를 골라 주석을 하나의 Markdown으로 묶어 내보내기 |
 | **Continue** 줄 | 최근에 보던 문서 3건. 가는 선이 어디까지 읽었는지 보여 줍니다 |
 | 상태 칩 | `All` `Pinned` `Needs file` `Recent` |
+
+### 폴더·태그로 정리하기
+
+- 문서 줄을 길게 누르면(또는 우클릭) 뜨는 시트의 **`Edit tags`**로 쉼표로 구분한
+  태그를 자유롭게 답니다(예: `vocab, avgo`). 태그는 문서 줄 아래에
+  `#vocab #avgo`처럼 작게 표시되고, 검색창에 태그 글자를 쳐도 바로 찾아집니다.
+- **⋯ → `Filter by tag`**에서 실제로 쓰인 태그만 목록으로 뜨고, 여러 개를
+  고르면 **그 태그를 전부 가진 문서만** 남습니다(AND 조건, `Filter by type`과
+  같은 방식).
+- **⋯ → `Folders`**에서 새 폴더를 만들고(`+ New folder`), 폴더를 눌러 그
+  폴더의 문서만 볼 수 있습니다. 폴더 옆 `Rename`/`Delete`로 이름을 바꾸거나
+  없앨 수 있습니다 — **폴더를 지워도 그 안의 문서는 지워지지 않고 Unsorted로
+  이동**합니다.
+- 문서를 폴더에 넣으려면 문서 줄을 길게 눌러(또는 우클릭) **`Move to folder`**를
+  고릅니다. 현재 폴더가 있는 문서는 줄에 폴더 이름 배지가 뜹니다.
+- 폴더·태그는 모두 **백업 파일에 포함**되어 `Restore from backup`으로 그대로
+  복원됩니다. (동기화되는 항목은 기존과 같이 제목·태그·날짜·크기뿐이며, 폴더
+  배정 자체는 이 기기에만 남습니다.)
 
 글자 크기를 6px·8px로 줄이면 Continue 줄은 자동으로 접히고 화면이 순수한
 목록이 됩니다.
@@ -67,7 +84,7 @@
 ### 문서 줄을 길게 누르면
 
 `Open`(열기) · `Pin`(핀) · `Rename`(제목 수정) · `Edit tags`(태그) ·
-`Export original`(원본 내보내기) · `Delete`(삭제)
+`Move to folder`(폴더로 이동) · `Export original`(원본 내보내기) · `Delete`(삭제)
 
 ---
 
