@@ -668,6 +668,15 @@ function buildContext(doc, blob, body, transient = false) {
     async reconnect() {
       if (await reconnectDocument(doc)) await openDocument(doc);
     },
+    // Only handlers/html.js calls this today — its rendered document lives in
+    // a sandboxed cross-origin iframe, so its own Selection never reaches the
+    // outer document's selectionchange the way text/markdown/PDF's does (see
+    // annotation.captureFrameSelection). Mirrors updateSelection() below
+    // exactly, just fed a selection the app itself couldn't have observed.
+    reportFrameSelection(captured) {
+      if (captured) State.selection = captured;
+      $('#annotationToolbar').classList.toggle('hidden', !captured);
+    },
   };
 }
 
@@ -899,6 +908,7 @@ async function paintAnnotations() {
   State.highlightCleanup?.();
   const rows = await store.listAnnotations(State.current.id, { includeExports: false });
   State.highlightCleanup = annotation.applyStoredHighlights($('#viewerBody'), rows);
+  State.view?.applyHighlights?.(rows);
 }
 
 async function attachAnnotationTools(body) {
@@ -921,6 +931,7 @@ async function attachAnnotationTools(body) {
 function clearSelectionAction() {
   $('#annotationToolbar').classList.add('hidden');
   try { window.getSelection()?.removeAllRanges(); } catch { /* selection may belong to a closed view */ }
+  State.view?.clearFrameSelection?.();
 }
 
 async function saveJournalRef(item, event) {
@@ -969,7 +980,7 @@ function noteEditor({ title, note = '', color = 'core', allowColor = true } = {}
 async function createAnnotation(kind, { note = '', semanticColor = 'core', selection = State.selection } = {}) {
   if (!State.current || State.transient) return null;
   const now = annotationTimestamp();
-  const location = selection?.locator || annotation.currentLocation($('#viewerBody'));
+  const location = selection?.locator || State.view?.currentLocation?.() || annotation.currentLocation($('#viewerBody'));
   const item = {
     id: store.newId(), docId: State.current.id, kind,
     quote: String(selection?.quote || '').normalize('NFC'), note: String(note || '').normalize('NFC'),
@@ -1106,6 +1117,9 @@ async function jumpToAnnotation(item) {
   if (item.locator?.type === 'pdf' && item.locator?.page) {
     if (State.view?.goToPage) State.view.goToPage(item.locator.page);
     return;
+  }
+  if (item.locator?.type === 'html' && State.view?.scrollToAnnotation) {
+    if (await State.view.scrollToAnnotation(item)) return;
   }
   const body = $('#viewerBody');
   if (!body) return;

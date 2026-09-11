@@ -33,6 +33,7 @@ import { decodeBlob } from './encoding.js';
 import { Finder } from '../find.js';
 import * as pkg from '../package.js';
 import * as preview from '../preview.js';
+import { ANNOTATION_COLORS, captureFrameSelection } from '../annotation.js';
 
 export const kinds = ['html', 'html-package'];
 
@@ -232,6 +233,15 @@ export async function render(ctx) {
   let mode = isPackage ? 'run' : 'read';
   const buttons = {};
 
+  // The rendered document lives in a sandboxed, cross-origin iframe (see the
+  // module note above), so its Selection and scroll position never reach the
+  // outer document on their own. instrument() (preview.js) reports both by
+  // postMessage; frameReady/lastLocation/lastHighlights just remember enough
+  // of that to answer synchronously (currentLocation()) or resend on remount.
+  let frameReady = false;
+  let lastLocation = null;
+  let lastHighlights = [];
+
   // Read mode's zoom follows the app's own text-size steps (settings.js /
   // app.js DOC_STEPS), which live on the OUTER document as --fs-doc — a var
   // that cannot cross the sandboxed iframe boundary on its own. Watching it
@@ -275,6 +285,7 @@ export async function render(ctx) {
   function unmount() {
     zoomObserver?.disconnect();
     zoomObserver = null;
+    frameReady = false;
     if (mounted) { mounted.destroy(); mounted = null; }
     clear(stage);
     clear(noticeHost);
@@ -305,7 +316,7 @@ export async function render(ctx) {
     // inject folio's own instrumentation, which never passes through
     // DOMPurify at all and is the only script the inner frame will ever hold.
     const sanitized = preview.ensureViewport(sanitizeDocument(readSource));
-    const instrumented = preview.injectHead(sanitized, preview.instrument(session));
+    const instrumented = preview.injectHead(preview.injectHead(sanitized, preview.highlightStyle()), preview.instrument(session));
     mounted = preview.mount(stage, {
       html: instrumented,
       session,
@@ -313,9 +324,11 @@ export async function render(ctx) {
       innerSandbox: preview.INNER_SANDBOX_READ_SCRIPTED,
       title: doc.title,
       restoreY: state.scrollY || 0,
-      onScroll: (y) => ctx.saveReading({ scrollY: y }),
+      onScroll: (y, extra) => { ctx.saveReading({ scrollY: y }); lastLocation = extra; },
       onOpen: (url) => ctx.openExternal(url),
       onOpenAsset: (path) => ctx.openAsset(path),
+      onSelection: (payload) => ctx.reportFrameSelection?.(captureFrameSelection(payload)),
+      onReady: () => { frameReady = true; mounted?.applyHighlights(lastHighlights); },
     });
     watchZoom();
     mounted.setZoom(currentZoomRatio());
@@ -334,6 +347,7 @@ export async function render(ctx) {
     }
     let html = preview.ensureViewport(source);
     html = preview.injectHead(html, preview.STORAGE_SHIM);
+    html = preview.injectHead(html, preview.highlightStyle());
     return preview.injectHead(html, preview.instrument(session));
   }
 
@@ -358,10 +372,12 @@ export async function render(ctx) {
       allowScripts: true,
       title: doc.title,
       restoreY: state.scrollY || 0,
-      onScroll: (y) => ctx.saveReading({ scrollY: y }),
+      onScroll: (y, extra) => { ctx.saveReading({ scrollY: y }); lastLocation = extra; },
       onOpen: (url) => ctx.openExternal(url),
       onOpenAsset: (path) => ctx.openAsset(path),
       onIssue: addIssue,
+      onSelection: (payload) => ctx.reportFrameSelection?.(captureFrameSelection(payload)),
+      onReady: () => { frameReady = true; mounted?.applyHighlights(lastHighlights); },
     });
   }
 
@@ -440,6 +456,47 @@ export async function render(ctx) {
         },
       }),
     ],
+    // Repaints this document's own CSS.highlights from the stored annotation
+    // rows — app.js's paintAnnotations() calls this the same way it calls
+    // annotation.applyStoredHighlights() for every other format, but the
+    // actual ranges have to be found and drawn INSIDE the sandboxed frame
+    // (see instrument()'s applyHL in preview.js), so the rows are reduced to
+    // plain {quote, prefix, suffix, color} first and cached in case the
+    // frame is still loading (onReady above resends the cached list once it is).
+    applyHighlights(rows) {
+      lastHighlights = (rows || [])
+        .filter((row) => !row.deletedAt && row.kind === 'highlight' && row.quote)
+        .map((row) => ({
+          quote: row.quote,
+          prefix: row.locator?.textQuote?.prefix || '',
+          suffix: row.locator?.textQuote?.suffix || '',
+          color: ANNOTATION_COLORS.includes(row.semanticColor) ? row.semanticColor : 'core',
+        }));
+      if (mounted && frameReady) mounted.applyHighlights(lastHighlights);
+    },
+    // Scrolls to a saved highlight/note the same way jumpToAnnotation does
+    // for every other format — but the target text lives inside the frame,
+    // so the search has to run there too (instrument()'s findRange).
+    async scrollToAnnotation(item) {
+      if (!mounted) return false;
+      mounted.locate(item);
+      return true;
+    },
+    // A location for a standalone "Add note here" with no text selection —
+    // the closest thing to annotation.currentLocation() this format can offer,
+    // since document.elementFromPoint() on the outer document only ever finds
+    // the <iframe> element itself. Best-effort from the last scroll report.
+    currentLocation() {
+      if (!lastLocation) return null;
+      const pct = Math.round((lastLocation.ratio || 0) * 100);
+      return {
+        type: 'html',
+        scrollRatio: lastLocation.ratio || 0,
+        ...(lastLocation.heading ? { heading: lastLocation.heading } : {}),
+        locationLabel: lastLocation.heading ? `${pct}% · ${lastLocation.heading}` : `${pct}%`,
+      };
+    },
+    clearFrameSelection() { mounted?.clearSelection(); },
     destroy() { unmount(); finder.clear(); },
   };
 }

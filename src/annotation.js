@@ -76,6 +76,39 @@ export function captureSelection(body, selection = window.getSelection()) {
   };
 }
 
+// Rendered HTML documents live in a sandboxed, cross-origin iframe (plan
+// 6-4's vault engine) so window.getSelection()/selectionchange on the OUTER
+// document never sees a selection made inside them — a lone `captureSelection`
+// call over `body` silently finds nothing there. preview.js's instrument()
+// script runs INSIDE that iframe instead, watches its own selectionchange,
+// and posts the quote/prefix/suffix/heading/scrollRatio up through the host
+// relay (handlers/html.js wires it to ctx.reportFrameSelection). This turns
+// that already-normalized message into the exact shape captureSelection
+// produces, so every downstream consumer (createAnnotation, findTextRange,
+// serialize*) stays unaware selection ever crossed a frame boundary.
+export function captureFrameSelection(payload) {
+  if (!payload) return null;
+  const quote = normalize(payload.quote).trim();
+  if (!quote) return null;
+  const scrollRatio = Math.max(0, Math.min(1, Number(payload.scrollRatio) || 0));
+  const heading = payload.heading ? normalize(payload.heading).slice(0, 80) : null;
+  const label = `${Math.round(scrollRatio * 100)}%`;
+  return {
+    quote,
+    locator: {
+      type: 'html',
+      scrollRatio,
+      ...(heading ? { heading } : {}),
+      locationLabel: heading ? `${label} · ${heading}` : label,
+      textQuote: {
+        exact: quote,
+        prefix: normalize(payload.prefix || '').slice(-48),
+        suffix: normalize(payload.suffix || '').slice(0, 48),
+      },
+    },
+  };
+}
+
 function textNodes(root) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
