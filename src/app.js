@@ -156,6 +156,9 @@ async function refreshLibrary() {
   const annotationCounts = await store.annotationCounts();
   const folderNames = new Map(State.folders.map((folder) => [folder.id, folder.name]));
 
+  paintFolderTabs();
+  paintTagFilterRow();
+
   ordered.forEach((doc) => {
     list.appendChild(el('li', {}, [library.documentRow(doc, {
       retentionDays: days,
@@ -324,6 +327,54 @@ function paintChips() {
   $$('#stateChips .chip').forEach((chip) => {
     chip.setAttribute('aria-pressed', String(chip.dataset.state === settings.get('stateFilter')));
   });
+}
+
+/** Folder/tag browsing (folio home-redesign 2026-09-11): a folder tab row
+    right under Continue, so folders and tags read as places to browse — like
+    a file manager — rather than a filter buried in a menu sheet. Tapping a
+    folder tab sets folderFilter exactly like openFoldersSheet's rows already
+    did; the trailing "+ Folders" tab still opens that sheet for create/
+    rename/delete, so this doesn't duplicate that logic. */
+function paintFolderTabs() {
+  const host = $('#folderTabs');
+  clear(host);
+  const current = settings.get('folderFilter');
+  const counts = folders.folderDocCounts(State.docs);
+
+  const tab = (id, label, count) => el('button', {
+    class: 'chip', type: 'button', 'aria-pressed': String(current === id),
+    text: `${label} (${count || 0})`,
+    onclick: () => { settings.set('folderFilter', id); refreshLibrary(); },
+  });
+
+  host.appendChild(tab(null, 'All', State.docs.length));
+  host.appendChild(tab('unsorted', 'Unsorted', counts.get(null) || 0));
+  State.folders.forEach((folder) => host.appendChild(tab(folder.id, folder.name, counts.get(folder.id) || 0)));
+  host.appendChild(el('button', {
+    class: 'chip', type: 'button', text: '+ Folders', 'aria-label': 'Manage folders',
+    onclick: () => openFoldersSheet(),
+  }));
+}
+
+/** Active tag filters shown as removable chips, right under the folder tabs —
+    "Filter by tag" (library menu) still picks tags; this just makes an
+    already-active filter visible and clearable without reopening that sheet. */
+function paintTagFilterRow() {
+  const host = $('#tagFilterRow');
+  clear(host);
+  const active = settings.get('tagFilter');
+  host.classList.toggle('hidden', !active.length);
+  if (!active.length) return;
+  active.forEach((tag) => {
+    host.appendChild(el('button', {
+      class: 'chip', type: 'button', text: `#${tag} ✕`, 'aria-label': `Remove tag filter ${tag}`,
+      onclick: () => { settings.set('tagFilter', active.filter((value) => value !== tag)); refreshLibrary(); },
+    }));
+  });
+  host.appendChild(el('button', {
+    class: 'chip', type: 'button', text: 'Clear',
+    onclick: () => { settings.set('tagFilter', []); refreshLibrary(); },
+  }));
 }
 
 /* ── import ────────────────────────────────────────────────────────────── */
