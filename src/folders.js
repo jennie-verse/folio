@@ -24,6 +24,20 @@ export async function createFolder(name) {
   return row;
 }
 
+/** Finds a folder by name (case-insensitive) or creates it. Used when a
+    remote device reports a folder this one hasn't seen yet — never throws
+    on a name collision, since "already exists" is exactly the success case. */
+export async function ensureFolder(name) {
+  const trimmed = String(name || '').trim().slice(0, 60);
+  if (!trimmed) return null;
+  const folders = await listFolders();
+  const existing = folders.find((folder) => folder.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase());
+  if (existing) return existing;
+  const row = { id: newId(), name: trimmed, order: folders.length, createdAt: Date.now() };
+  await db.folders.put(row);
+  return row;
+}
+
 export async function renameFolder(id, name) {
   const trimmed = String(name || '').trim().slice(0, 60);
   if (!trimmed) throw new Error('Enter a folder name.');

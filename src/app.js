@@ -115,6 +115,60 @@ function toggleLibraryRail() {
   $('#btnLibraryToggle').focus();
 }
 
+/* ── sync: folder/tag reconciliation ──────────────────────────────────────
+   sync.js only ever uploads metadata, so cross-device folder/tag agreement
+   has to happen here, where store.js and folders.js are both in reach. */
+
+/** metaFor() needs a folder *name*, not the local folderId a remote device
+    can't resolve — so the list handed to sync-runner carries names already. */
+async function getDocsWithFolderNames() {
+  const [docs, folderRows] = await Promise.all([store.listDocuments(), folders.listFolders()]);
+  const nameById = new Map(folderRows.map((folder) => [folder.id, folder.name]));
+  return docs.map((doc) => ({ ...doc, folderName: doc.folderId ? nameById.get(doc.folderId) || '' : '' }));
+}
+
+/** Applies another device's folder/tag choice to documents that already
+    exist here (matched by fileHash — folio never uploads file bytes, so a
+    document only exists locally if this device already has that file).
+    Last `updatedAt` wins, same rule metaFor's own list-merge uses. Creates
+    any folder name it doesn't recognise yet (folders.ensureFolder is
+    idempotent) but never deletes or renames a local folder. */
+async function applyRemoteFolderTags(remoteList) {
+  if (!Array.isArray(remoteList) || !remoteList.length) return false;
+
+  // Keep only the newest entry per fileHash across every device's list.
+  const byHash = new Map();
+  for (const entry of remoteList) {
+    if (!entry || entry.deleted || !entry.fileHash) continue;
+    const previous = byHash.get(entry.fileHash);
+    if (!previous || Number(entry.updatedAt) > Number(previous.updatedAt)) byHash.set(entry.fileHash, entry);
+  }
+  if (!byHash.size) return false;
+
+  let changed = false;
+  const docs = await store.listDocuments();
+  for (const doc of docs) {
+    if (!doc.fileHash) continue;
+    const remote = byHash.get(doc.fileHash);
+    if (!remote || Number(remote.updatedAt) <= Number(doc.updatedAt || 0)) continue;
+
+    let folderId = doc.folderId || null;
+    if (remote.folder) {
+      const folder = await folders.ensureFolder(remote.folder);
+      folderId = folder ? folder.id : folderId;
+    } else {
+      folderId = null;
+    }
+    const tags = Array.isArray(remote.tags) ? remote.tags : doc.tags;
+
+    if (folderId !== (doc.folderId || null) || JSON.stringify(tags) !== JSON.stringify(doc.tags || [])) {
+      await store.putDocument({ ...doc, folderId, tags, updatedAt: Number(remote.updatedAt) });
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /* ── library ───────────────────────────────────────────────────────────── */
 
 async function refreshLibrary() {
@@ -2208,8 +2262,11 @@ async function boot() {
   await refreshLibrary();
   paintSegments();
 
-  syncRunner.attach({ getDocs: () => store.listDocuments() });
-  syncRunner.onSyncState(() => paintSyncState());
+  syncRunner.attach({ getDocs: getDocsWithFolderNames, applyRemote: applyRemoteFolderTags });
+  syncRunner.onSyncState((state) => {
+    paintSyncState();
+    if (state === 'idle') refreshLibrary();
+  });
   if (sync.isReady()) syncRunner.schedulePush();
   if (journal.isJournalEnabled()) journal.drainDeletionQueue().catch(() => {});
 

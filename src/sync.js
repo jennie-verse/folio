@@ -374,7 +374,7 @@ function stamp(entry) {
     한 건이 수 MB 라 저장소가 금방 무거워지고, 개인 문서 원문이 공용 층에
     올라가서도 안 됩니다. 검사 스크립트가 올라간 JSON 전체에 `content` 가
     한 글자도 없는지 확인합니다. */
-export function metaFor(doc) {
+export function metaFor(doc, folderName = "") {
   return {
     id: String(doc.id),
     title: String(doc.title || "").slice(0, 200),
@@ -384,6 +384,11 @@ export function metaFor(doc) {
     updatedAt: Number(doc.updatedAt) || 0,
     lastOpenedAt: Number(doc.lastTouchedAt) || 0,
     sizeBytes: Number(doc.size) || 0,
+    // 폴더는 이름으로 올립니다. folderId 는 기기마다 따로 생성된 로컬 id라
+    // 그대로는 다른 기기에서 알아볼 수 없습니다. fileHash 는 본문 없이도
+    // "같은 파일"을 다른 기기에서 알아보기 위한 매칭 키입니다.
+    folder: String(folderName || "").slice(0, 60),
+    fileHash: String(doc.fileHash || ""),
   };
 }
 
@@ -413,6 +418,33 @@ export async function pullIndex() {
   const payload = parseJson(read.content, null);
   const list = payload && payload.data ? payload.data.docs : null;
   return Array.isArray(list) ? list : [];
+}
+
+/** 이 앱의 폴더( `folio/` )에 있는 목록 파일을 **전부** 읽습니다. 기기마다
+    자기 index.<ctx>.json 하나씩 쓰므로, 다른 기기가 붙인 폴더·태그를 보려면
+    이 목록을 훑어야 합니다. 문서 본문은 여전히 오가지 않습니다 — id 별
+    메타 항목만 모아서 돌려줍니다. */
+export async function pullAllRemote() {
+  if (!isReady()) return [];
+  const Shared = await api();
+  const cfg = config();
+  let entries;
+  try {
+    entries = await Shared.listDir(cfg, NAMESPACE);
+  } catch (error) {
+    if (error && error.type === "notfound") return [];
+    throw error;
+  }
+  const files = entries.filter((entry) => entry.type === "file" && /^index\..+\.json$/.test(entry.name));
+  const all = [];
+  for (const file of files) {
+    const read = await Shared.readFile(cfg, file.path);
+    if (!read.exists) continue;
+    const payload = parseJson(read.content, null);
+    const list = payload && payload.data ? payload.data.docs : null;
+    if (Array.isArray(list)) all.push(...list);
+  }
+  return all;
 }
 
 /** 문서 메타 목록을 올립니다.
