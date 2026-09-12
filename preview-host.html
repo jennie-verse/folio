@@ -21,8 +21,8 @@ window.addEventListener('message',function(event){var d=event.data;
   if(event.source===parent&&event.origin!=='null'&&inner&&d&&d.protocol===PROTOCOL&&d.session===session&&d.type==='restore'){
     try{inner.contentWindow.postMessage({__folioPreview:1,session:session,type:'restore',y:+d.y||0},'*')}catch(_){}return;
   }
-  if(event.source===parent&&event.origin!=='null'&&inner&&d&&d.protocol===PROTOCOL&&d.session===session&&d.type==='zoom'){
-    try{inner.contentWindow.postMessage({__folioPreview:1,session:session,type:'zoom',ratio:+d.ratio||1},'*')}catch(_){}return;
+  if(event.source===parent&&event.origin!=='null'&&inner&&d&&d.protocol===PROTOCOL&&d.session===session&&d.type==='text-scale'){
+    try{inner.contentWindow.postMessage({__folioPreview:1,session:session,type:'text-scale',ratio:+d.ratio||1},'*')}catch(_){}return;
   }
   if(event.source===parent&&event.origin!=='null'&&inner&&d&&d.protocol===PROTOCOL&&d.session===session&&d.type==='highlights'){
     try{inner.contentWindow.postMessage({__folioPreview:1,session:session,type:'highlights',items:d.items||[]},'*')}catch(_){}return;

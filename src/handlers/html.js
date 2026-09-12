@@ -242,19 +242,22 @@ export async function render(ctx) {
   let lastLocation = null;
   let lastHighlights = [];
 
-  // Read mode's zoom follows the app's own text-size steps (settings.js /
+  // Read mode's text size follows the app's own text-size steps (settings.js /
   // app.js DOC_STEPS), which live on the OUTER document as --fs-doc — a var
   // that cannot cross the sandboxed iframe boundary on its own. Watching it
-  // here and relaying through preview.mount().setZoom() is the bridge.
-  let zoomObserver = null;
-  function currentZoomRatio() {
+  // here and relaying through preview.mount().setTextScale() is the bridge.
+  // This is a *font-size* override inside the inner frame, not CSS zoom — it
+  // resizes the document's text without also scaling images, layout, or
+  // anything else set in absolute units (preview.js's instrument()).
+  let textScaleObserver = null;
+  function currentTextScale() {
     const px = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--fs-doc'), 10) || 15;
     return px / 15; // 15px is the app's own default doc size (DOC_STEPS[4])
   }
-  function watchZoom() {
-    zoomObserver?.disconnect();
-    zoomObserver = new MutationObserver(() => { if (mounted && mode === 'read') mounted.setZoom(currentZoomRatio()); });
-    zoomObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+  function watchTextScale() {
+    textScaleObserver?.disconnect();
+    textScaleObserver = new MutationObserver(() => { if (mounted && mode === 'read') mounted.setTextScale(currentTextScale()); });
+    textScaleObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
   }
 
   function addIssue(kind, message, severity) {
@@ -283,8 +286,8 @@ export async function render(ctx) {
   }
 
   function unmount() {
-    zoomObserver?.disconnect();
-    zoomObserver = null;
+    textScaleObserver?.disconnect();
+    textScaleObserver = null;
     frameReady = false;
     if (mounted) { mounted.destroy(); mounted = null; }
     clear(stage);
@@ -330,8 +333,8 @@ export async function render(ctx) {
       onSelection: (payload) => ctx.reportFrameSelection?.(captureFrameSelection(payload)),
       onReady: () => { frameReady = true; mounted?.applyHighlights(lastHighlights); },
     });
-    watchZoom();
-    mounted.setZoom(currentZoomRatio());
+    watchTextScale();
+    mounted.setTextScale(currentTextScale());
   }
 
   function buildRunHtml(session) {

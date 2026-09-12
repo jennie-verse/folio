@@ -53,7 +53,7 @@ export const STORAGE_SHIM = '<scr' + 'ipt>(function(){function mk(){var m=Object
    of <head> so it also catches failures thrown by the document's own head
    scripts — appending it at </body> misses those entirely. */
 export function instrument(session) {
-  return '<scr' + 'ipt>(function(){var S=' + JSON.stringify(session) + ';function p(t,d){try{parent.postMessage(Object.assign({__folioPreview:1,session:S,type:t},d||{}),"*")}catch(e){}}'
+  return '<scr' + 'ipt>(function(){var S=' + JSON.stringify(session) + ';var baseFS=null;function p(t,d){try{parent.postMessage(Object.assign({__folioPreview:1,session:S,type:t},d||{}),"*")}catch(e){}}'
     // Selection/highlight support (folio reading annotations): this document is
     // its own realm, so the outer app can never read its Selection directly —
     // these helpers find quote text, the nearest heading and a 0-1 scroll
@@ -67,7 +67,7 @@ export function instrument(session) {
     + 'var HLC=["core","agree","question","word","quote"];function applyHL(items){if(!window.CSS||!CSS.highlights||typeof Highlight!=="function")return;for(var i=0;i<HLC.length;i++)CSS.highlights.delete("folio-"+HLC[i]);var groups={};for(var k=0;k<HLC.length;k++)groups[HLC[k]]=[];(items||[]).forEach(function(item){var rg=findRange(item.quote,item.prefix||"",item.suffix||"");if(rg)groups[HLC.indexOf(item.color)>=0?item.color:"core"].push(rg)});for(var m=0;m<HLC.length;m++){if(groups[HLC[m]].length)CSS.highlights.set("folio-"+HLC[m],new Highlight(...groups[HLC[m]]))}}'
     + 'function selCtx(){var sel=window.getSelection();if(!sel||sel.rangeCount!==1||sel.isCollapsed)return null;var quote=(sel.toString()||"").trim();if(!quote)return null;var full=(document.body&&(document.body.innerText||document.body.textContent))||"";var at=full.indexOf(quote);var rg=sel.getRangeAt(0);var node=rg.startContainer.nodeType===1?rg.startContainer:rg.startContainer.parentElement;return{quote:quote,prefix:at>=0?full.slice(Math.max(0,at-48),at):"",suffix:at>=0?full.slice(at+quote.length,at+quote.length+48):"",heading:nearestHeading(node),scrollRatio:ratio()}}'
     + 'var sf=0;function postSel(){sf=0;p("selection",selCtx()||{quote:null})}document.addEventListener("selectionchange",function(){if(sf)cancelAnimationFrame(sf);sf=requestAnimationFrame(postSel)});'
-    + 'function s(){p("scroll",{y:(window.scrollY||document.documentElement.scrollTop||0),ratio:ratio(),heading:nearestHeading(elAtTop())})}window.addEventListener("error",function(e){p("runtime-error",{message:e.message||"Preview runtime error"})},true);window.addEventListener("unhandledrejection",function(e){var v=e.reason;p("runtime-error",{message:v&&v.message||String(v||"Unhandled promise rejection")})});var r;window.addEventListener("scroll",function(){if(r)cancelAnimationFrame(r);r=requestAnimationFrame(s)},{passive:true});window.addEventListener("message",function(e){var d=e.data;if(!d||d.__folioPreview!==1||d.session!==S)return;if(d.type==="restore"){try{window.scrollTo(0,d.y||0)}catch(x){}}else if(d.type==="zoom"){try{document.documentElement.style.zoom=String(d.ratio||1)}catch(x){}}else if(d.type==="highlights"){applyHL(d.items||[])}else if(d.type==="locate"){var rg2=d.quote?findRange(d.quote,d.prefix||"",d.suffix||""):null;if(rg2){try{var tgt=rg2.startContainer.nodeType===1?rg2.startContainer:rg2.startContainer.parentElement;tgt&&tgt.scrollIntoView&&tgt.scrollIntoView({block:"center"})}catch(x){}}else{try{var de=document.documentElement;window.scrollTo(0,(typeof d.scrollRatio==="number"?d.scrollRatio:0)*Math.max(1,de.scrollHeight-window.innerHeight))}catch(x){}}}else if(d.type==="clear-selection"){try{window.getSelection().removeAllRanges()}catch(x){}}});document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var raw=a.getAttribute("href")||"";var inPkg=a.getAttribute("data-folio-path");if(inPkg){e.preventDefault();p("open-asset",{path:inPkg});return}if(raw.charAt(0)==="#"){e.preventDefault();var f=raw.slice(1),id=f;try{id=decodeURIComponent(f)}catch(x){}var target=id?document.getElementById(id):document.documentElement;if(!target&&id){var named=document.getElementsByName(id);target=named&&named[0]}if(target){try{target.scrollIntoView({block:"start"})}catch(x){target.scrollIntoView()}s()}return}if(a.hasAttribute("download"))return;var u=a.href||raw,pcol=(a.protocol||"").toLowerCase();if(pcol==="http:"||pcol==="https:"||pcol==="mailto:"||pcol==="tel:"||pcol==="sms:"){e.preventDefault();p("open",{url:u})}else if(/^javascript:/i.test(raw)){e.preventDefault();p("runtime-error",{message:"javascript: links are blocked"})}},true);function rdy(){p("ready")}if(document.readyState==="complete")rdy();else window.addEventListener("load",rdy);})();<\/scr' + 'ipt>';
+    + 'function s(){p("scroll",{y:(window.scrollY||document.documentElement.scrollTop||0),ratio:ratio(),heading:nearestHeading(elAtTop())})}window.addEventListener("error",function(e){p("runtime-error",{message:e.message||"Preview runtime error"})},true);window.addEventListener("unhandledrejection",function(e){var v=e.reason;p("runtime-error",{message:v&&v.message||String(v||"Unhandled promise rejection")})});var r;window.addEventListener("scroll",function(){if(r)cancelAnimationFrame(r);r=requestAnimationFrame(s)},{passive:true});window.addEventListener("message",function(e){var d=e.data;if(!d||d.__folioPreview!==1||d.session!==S)return;if(d.type==="restore"){try{window.scrollTo(0,d.y||0)}catch(x){}}else if(d.type==="text-scale"){try{if(baseFS===null){baseFS=parseFloat(getComputedStyle(document.documentElement).fontSize)||16}var px=baseFS*(Number(d.ratio)||1);var st=document.getElementById("__folioTextScale");if(!st){st=document.createElement("style");st.id="__folioTextScale";document.head.appendChild(st)}st.textContent="html,body{font-size:"+px+"px !important}"}catch(x){}}else if(d.type==="highlights"){applyHL(d.items||[])}else if(d.type==="locate"){var rg2=d.quote?findRange(d.quote,d.prefix||"",d.suffix||""):null;if(rg2){try{var tgt=rg2.startContainer.nodeType===1?rg2.startContainer:rg2.startContainer.parentElement;tgt&&tgt.scrollIntoView&&tgt.scrollIntoView({block:"center"})}catch(x){}}else{try{var de=document.documentElement;window.scrollTo(0,(typeof d.scrollRatio==="number"?d.scrollRatio:0)*Math.max(1,de.scrollHeight-window.innerHeight))}catch(x){}}}else if(d.type==="clear-selection"){try{window.getSelection().removeAllRanges()}catch(x){}}});document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var raw=a.getAttribute("href")||"";var inPkg=a.getAttribute("data-folio-path");if(inPkg){e.preventDefault();p("open-asset",{path:inPkg});return}if(raw.charAt(0)==="#"){e.preventDefault();var f=raw.slice(1),id=f;try{id=decodeURIComponent(f)}catch(x){}var target=id?document.getElementById(id):document.documentElement;if(!target&&id){var named=document.getElementsByName(id);target=named&&named[0]}if(target){try{target.scrollIntoView({block:"start"})}catch(x){target.scrollIntoView()}s()}return}if(a.hasAttribute("download"))return;var u=a.href||raw,pcol=(a.protocol||"").toLowerCase();if(pcol==="http:"||pcol==="https:"||pcol==="mailto:"||pcol==="tel:"||pcol==="sms:"){e.preventDefault();p("open",{url:u})}else if(/^javascript:/i.test(raw)){e.preventDefault();p("runtime-error",{message:"javascript: links are blocked"})}},true);function rdy(){p("ready")}if(document.readyState==="complete")rdy();else window.addEventListener("load",rdy);})();<\/scr' + 'ipt>';
 }
 
 /** Insert at the very top of <head> so shims run before any document script. */
@@ -106,7 +106,7 @@ export function newSession() {
  *
  * @param {HTMLElement} container element the iframe is appended to
  * @param {object} options {html, session, allowScripts, innerSandbox, title, restoreY, onIssue, onScroll, onOpen, onOpenAsset}
- * @returns {{destroy:Function, frame:HTMLIFrameElement, session:string, setZoom:Function}}
+ * @returns {{destroy:Function, frame:HTMLIFrameElement, session:string, setTextScale:Function}}
  */
 export function mount(container, options) {
   const session = options.session || newSession();
@@ -191,18 +191,21 @@ export function mount(container, options) {
   return {
     frame,
     session,
-    /** Rescale the mounted document (ratio 1 = the document's own default).
-        Silently a no-op until the inner frame has requested `innerSandbox`
-        with allow-scripts — a plain, un-instrumented Read frame simply never
-        acts on the message. */
-    setZoom(ratio) {
-      const message = { protocol: PROTOCOL, session, type: 'zoom', ratio: Number(ratio) || 1 };
+    /** Rescale the mounted document's TEXT ONLY (ratio 1 = the document's own
+        default). This overrides the document's root font-size — it never
+        touches CSS `zoom`, which would also scale images, layout and
+        anything else measured in absolute units; the point of a text-size
+        control is that it leaves those alone. Silently a no-op until the
+        inner frame has requested `innerSandbox` with allow-scripts — a
+        plain, un-instrumented Read frame simply never acts on the message. */
+    setTextScale(ratio) {
+      const message = { protocol: PROTOCOL, session, type: 'text-scale', ratio: Number(ratio) || 1 };
       try { frame.contentWindow.postMessage(message, '*'); } catch { /* frame gone */ }
     },
     /** Re-draws this document's own CSS.highlights from `items`
         ({quote, prefix, suffix, color}[]) — the same shape instrument()'s
         applyHL() expects. Silently a no-op until the frame has requested
-        instrumented Read/Run, exactly like setZoom above. */
+        instrumented Read/Run, exactly like setTextScale above. */
     applyHighlights(items) {
       const message = { protocol: PROTOCOL, session, type: 'highlights', items: items || [] };
       try { frame.contentWindow.postMessage(message, '*'); } catch { /* frame gone */ }
