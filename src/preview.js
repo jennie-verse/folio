@@ -53,7 +53,7 @@ export const STORAGE_SHIM = '<scr' + 'ipt>(function(){function mk(){var m=Object
    of <head> so it also catches failures thrown by the document's own head
    scripts — appending it at </body> misses those entirely. */
 export function instrument(session) {
-  return '<scr' + 'ipt>(function(){var S=' + JSON.stringify(session) + ';var baseFS=null;function p(t,d){try{parent.postMessage(Object.assign({__folioPreview:1,session:S,type:t},d||{}),"*")}catch(e){}}'
+  return '<scr' + 'ipt>(function(){var S=' + JSON.stringify(session) + ';var fsBase=null;function p(t,d){try{parent.postMessage(Object.assign({__folioPreview:1,session:S,type:t},d||{}),"*")}catch(e){}}'
     // Selection/highlight support (folio reading annotations): this document is
     // its own realm, so the outer app can never read its Selection directly —
     // these helpers find quote text, the nearest heading and a 0-1 scroll
@@ -73,7 +73,7 @@ export function instrument(session) {
     + 'function hitTest(x,y){for(var i=0;i<HLITEMS.length;i++){var it=HLITEMS[i];var rg=findRange(it.quote,it.prefix||"",it.suffix||"");if(!rg)continue;var rects=rg.getClientRects();for(var j=0;j<rects.length;j++){var r=rects[j];if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return it}}return null}'
     + 'function selCtx(){var sel=window.getSelection();if(!sel||sel.rangeCount!==1||sel.isCollapsed)return null;var quote=(sel.toString()||"").trim();if(!quote)return null;var full=(document.body&&(document.body.innerText||document.body.textContent))||"";var at=full.indexOf(quote);var rg=sel.getRangeAt(0);var node=rg.startContainer.nodeType===1?rg.startContainer:rg.startContainer.parentElement;return{quote:quote,prefix:at>=0?full.slice(Math.max(0,at-48),at):"",suffix:at>=0?full.slice(at+quote.length,at+quote.length+48):"",heading:nearestHeading(node),scrollRatio:ratio()}}'
     + 'var sf=0;function postSel(){sf=0;p("selection",selCtx()||{quote:null})}document.addEventListener("selectionchange",function(){if(sf)cancelAnimationFrame(sf);sf=requestAnimationFrame(postSel)});'
-    + 'function s(){p("scroll",{y:(window.scrollY||document.documentElement.scrollTop||0),ratio:ratio(),heading:nearestHeading(elAtTop())})}window.addEventListener("error",function(e){p("runtime-error",{message:e.message||"Preview runtime error"})},true);window.addEventListener("unhandledrejection",function(e){var v=e.reason;p("runtime-error",{message:v&&v.message||String(v||"Unhandled promise rejection")})});var r;window.addEventListener("scroll",function(){if(r)cancelAnimationFrame(r);r=requestAnimationFrame(s)},{passive:true});window.addEventListener("message",function(e){var d=e.data;if(!d||d.__folioPreview!==1||d.session!==S)return;if(d.type==="restore"){try{window.scrollTo(0,d.y||0)}catch(x){}}else if(d.type==="text-scale"){try{if(baseFS===null){baseFS=parseFloat(getComputedStyle(document.documentElement).fontSize)||16}var px=baseFS*(Number(d.ratio)||1);var st=document.getElementById("__folioTextScale");if(!st){st=document.createElement("style");st.id="__folioTextScale";document.head.appendChild(st)}st.textContent="body{font-size:"+px+"px !important}"}catch(x){}}else if(d.type==="highlights"){applyHL(d.items||[])}else if(d.type==="locate"){var rg2=d.quote?findRange(d.quote,d.prefix||"",d.suffix||""):null;if(rg2){try{var tgt=rg2.startContainer.nodeType===1?rg2.startContainer:rg2.startContainer.parentElement;tgt&&tgt.scrollIntoView&&tgt.scrollIntoView({block:"center"})}catch(x){}}else{try{var de=document.documentElement;window.scrollTo(0,(typeof d.scrollRatio==="number"?d.scrollRatio:0)*Math.max(1,de.scrollHeight-window.innerHeight))}catch(x){}}}else if(d.type==="clear-selection"){try{window.getSelection().removeAllRanges()}catch(x){}}});document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a){var sel=window.getSelection();if(sel&&!sel.isCollapsed&&(sel.toString()||"").trim())return;var hit=hitTest(e.clientX,e.clientY);if(hit){p("highlight-tap",{quote:hit.quote,prefix:hit.prefix||"",suffix:hit.suffix||"",color:hit.color||"core"});return}if(e.target&&e.target.closest&&e.target.closest("button,input,select,textarea,label,summary")){return}p("tap",{});return}var raw=a.getAttribute("href")||"";var inPkg=a.getAttribute("data-folio-path");if(inPkg){e.preventDefault();p("open-asset",{path:inPkg});return}if(raw.charAt(0)==="#"){e.preventDefault();var f=raw.slice(1),id=f;try{id=decodeURIComponent(f)}catch(x){}var target=id?document.getElementById(id):document.documentElement;if(!target&&id){var named=document.getElementsByName(id);target=named&&named[0]}if(target){try{target.scrollIntoView({block:"start"})}catch(x){target.scrollIntoView()}s()}return}if(a.hasAttribute("download"))return;var u=a.href||raw,pcol=(a.protocol||"").toLowerCase();if(pcol==="http:"||pcol==="https:"||pcol==="mailto:"||pcol==="tel:"||pcol==="sms:"){e.preventDefault();p("open",{url:u})}else if(/^javascript:/i.test(raw)){e.preventDefault();p("runtime-error",{message:"javascript: links are blocked"})}},true);function rdy(){p("ready")}if(document.readyState==="complete")rdy();else window.addEventListener("load",rdy);})();<\/scr' + 'ipt>';
+    + 'function s(){p("scroll",{y:(window.scrollY||document.documentElement.scrollTop||0),ratio:ratio(),heading:nearestHeading(elAtTop())})}window.addEventListener("error",function(e){p("runtime-error",{message:e.message||"Preview runtime error"})},true);window.addEventListener("unhandledrejection",function(e){var v=e.reason;p("runtime-error",{message:v&&v.message||String(v||"Unhandled promise rejection")})});var r;window.addEventListener("scroll",function(){if(r)cancelAnimationFrame(r);r=requestAnimationFrame(s)},{passive:true});window.addEventListener("message",function(e){var d=e.data;if(!d||d.__folioPreview!==1||d.session!==S)return;if(d.type==="restore"){try{window.scrollTo(0,d.y||0)}catch(x){}}else if(d.type==="text-scale"){try{var ratio=Number(d.ratio)||1;if(!fsBase){fsBase=[];var all=document.querySelectorAll("*");for(var fi=0;fi<all.length;fi++){var fel=all[fi],ftag=fel.tagName;if(ftag==="SCRIPT"||ftag==="STYLE"||ftag==="TEMPLATE"||ftag==="HTML")continue;var ffs=parseFloat(getComputedStyle(fel).fontSize)||16;fsBase.push([fel,ffs])}}for(var fj=0;fj<fsBase.length;fj++){var fpair=fsBase[fj];fpair[0].style.setProperty("font-size",(fpair[1]*ratio)+"px","important")}}catch(x){}}else if(d.type==="highlights"){applyHL(d.items||[])}else if(d.type==="locate"){var rg2=d.quote?findRange(d.quote,d.prefix||"",d.suffix||""):null;if(rg2){try{var tgt=rg2.startContainer.nodeType===1?rg2.startContainer:rg2.startContainer.parentElement;tgt&&tgt.scrollIntoView&&tgt.scrollIntoView({block:"center"})}catch(x){}}else{try{var de=document.documentElement;window.scrollTo(0,(typeof d.scrollRatio==="number"?d.scrollRatio:0)*Math.max(1,de.scrollHeight-window.innerHeight))}catch(x){}}}else if(d.type==="clear-selection"){try{window.getSelection().removeAllRanges()}catch(x){}}});document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a){var sel=window.getSelection();if(sel&&!sel.isCollapsed&&(sel.toString()||"").trim())return;var hit=hitTest(e.clientX,e.clientY);if(hit){p("highlight-tap",{quote:hit.quote,prefix:hit.prefix||"",suffix:hit.suffix||"",color:hit.color||"core"});return}if(e.target&&e.target.closest&&e.target.closest("button,input,select,textarea,label,summary")){return}p("tap",{});return}var raw=a.getAttribute("href")||"";var inPkg=a.getAttribute("data-folio-path");if(inPkg){e.preventDefault();p("open-asset",{path:inPkg});return}if(raw.charAt(0)==="#"){e.preventDefault();var f=raw.slice(1),id=f;try{id=decodeURIComponent(f)}catch(x){}var target=id?document.getElementById(id):document.documentElement;if(!target&&id){var named=document.getElementsByName(id);target=named&&named[0]}if(target){try{target.scrollIntoView({block:"start"})}catch(x){target.scrollIntoView()}s()}return}if(a.hasAttribute("download"))return;var u=a.href||raw,pcol=(a.protocol||"").toLowerCase();if(pcol==="http:"||pcol==="https:"||pcol==="mailto:"||pcol==="tel:"||pcol==="sms:"){e.preventDefault();p("open",{url:u})}else if(/^javascript:/i.test(raw)){e.preventDefault();p("runtime-error",{message:"javascript: links are blocked"})}},true);function rdy(){p("ready")}if(document.readyState==="complete")rdy();else window.addEventListener("load",rdy);})();<\/scr' + 'ipt>';
 }
 
 /** Insert at the very top of <head> so shims run before any document script. */
@@ -209,22 +209,40 @@ export function mount(container, options) {
     frame,
     session,
     /** Rescale the mounted document's TEXT ONLY (ratio 1 = the document's own
-        default). This overrides `body`'s font-size — deliberately NOT
-        `html`'s: `rem` units are always relative to the root (`html`)
-        element regardless of `body`'s own size, so a real-world document
-        that sizes its layout (max-width, padding, columns) in `rem` would
-        have that layout shrink right along with an `html` font-size
-        override, narrowing the whole page exactly when the text was made
-        smaller — fewer characters per line, not more (build
-        2026.09.13-readerux1's regression). Overriding only `body` changes
-        rendered text size (anything inheriting the normal em/percent
-        cascade) without moving the `rem` baseline the document's own layout
-        may depend on. It never touches CSS `zoom` either, which would also
-        scale images, layout and anything else measured in absolute units;
-        the point of a text-size control is that it leaves those alone.
-        Silently a no-op until the inner frame has requested `innerSandbox`
-        with allow-scripts — a plain, un-instrumented Read frame simply
-        never acts on the message. */
+        default). Two earlier approaches both broke on real-world documents
+        and are worth recording so nobody goes back to them:
+          · Overriding `html`'s font-size seems obvious, but `rem` units are
+            always relative to the root element — a document that sizes its
+            reading column in `rem` (a common max-width/padding technique)
+            had that column narrow right along with an `html` override,
+            making the page narrower exactly when the text was made smaller.
+          · Overriding only `body`'s font-size dodges `rem`, but most
+            real documents give their own headings/boxes/tables an EXPLICIT
+            px font-size (this is the common case, not the exception) —
+            those never inherit from `body` at all, so they stayed fixed
+            size while `ch`-based widths (another common readable-column
+            unit, relative to the *current* element's own font, not just
+            the root) still shrank with `body`. Net effect on a document
+            using both patterns together: shrinking the control narrowed the
+            column while leaving most of the visible text (headings first)
+            completely unchanged in size (build 2026.09.13-readerux2's
+            regression) — the opposite of what a text-size control should do.
+        What actually works: walk every element ONCE on the first resize and
+        remember its own current computed font-size (`fsBase` in
+        instrument()'s message handler, below), then on every ratio change
+        set each element's font-size directly to baseline*ratio via its
+        OWN inline style (`!important`, so it always wins over the
+        document's own CSS regardless of what that element set). Every
+        element scales proportionally to its OWN original size — headings
+        stay bigger than body text, `ch`/`em`-based widths shrink or grow in
+        lockstep with the text that defines them instead of independently —
+        with the SAME `html` element deliberately left alone so any `rem`
+        elsewhere is undisturbed. It never touches CSS `zoom` either, which
+        would also scale images, borders and anything else measured in
+        absolute units; the point of a text-size control is that it leaves
+        those alone. Silently a no-op until the inner frame has requested
+        `innerSandbox` with allow-scripts — a plain, un-instrumented Read
+        frame simply never acts on the message. */
     setTextScale(ratio) {
       const message = { protocol: PROTOCOL, session, type: 'text-scale', ratio: Number(ratio) || 1 };
       try { frame.contentWindow.postMessage(message, '*'); } catch { /* frame gone */ }
