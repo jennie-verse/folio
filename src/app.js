@@ -803,6 +803,20 @@ function buildContext(doc, blob, body, transient = false) {
       if (captured) State.selection = captured;
       $('#annotationToolbar').classList.toggle('hidden', !captured);
     },
+    // The HTML sandbox's own tap handler (instrument()'s hitTest, preview.js)
+    // hit-tests a tap against the highlights it was last told to draw and, on
+    // a match, posts back just {quote, prefix, suffix, color} — the frame's
+    // DOM never leaves the sandbox. Match that back to the real stored row so
+    // tapping a highlight opens its note editor here exactly like it does for
+    // text/markdown/PDF (see the body 'click' listener in attachAnnotationTools).
+    reportFrameHighlightTap(payload) {
+      if (!payload?.quote) return;
+      const rows = State.highlightRows || [];
+      const item = rows.find((row) => !row.deletedAt && row.kind === 'highlight' && row.quote === payload.quote
+        && (row.locator?.textQuote?.prefix || '') === (payload.prefix || '')
+        && (row.locator?.textQuote?.suffix || '') === (payload.suffix || ''));
+      if (item) editAnnotation(item);
+    },
   };
 }
 
@@ -1044,6 +1058,7 @@ async function paintAnnotations() {
   if (!State.current || State.transient) return;
   State.highlightCleanup?.();
   const rows = await store.listAnnotations(State.current.id, { includeExports: false });
+  State.highlightRows = rows;
   State.highlightCleanup = annotation.applyStoredHighlights($('#viewerBody'), rows);
   State.view?.applyHighlights?.(rows);
 }
@@ -1064,6 +1079,15 @@ async function attachAnnotationTools(body) {
   };
   document.addEventListener('selectionchange', updateSelection, { signal: State.viewerAbort.signal });
   body.addEventListener('pointerup', () => setTimeout(updateSelection, 0), { signal: State.viewerAbort.signal });
+  // Tapping an existing highlight (no drag, nothing newly selected) opens its
+  // note editor — showing the note already there, or a blank one to add.
+  body.addEventListener('click', (event) => {
+    if (event.target.closest?.('a,button,input,textarea,select,.annotation-toolbar')) return;
+    const activeSelection = window.getSelection();
+    if (activeSelection && !activeSelection.isCollapsed && activeSelection.toString().trim()) return;
+    const item = annotation.findAnnotationAtPoint(body, State.highlightRows, event.clientX, event.clientY);
+    if (item) editAnnotation(item);
+  }, { signal: State.viewerAbort.signal });
 }
 
 function clearSelectionAction() {

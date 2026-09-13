@@ -331,6 +331,7 @@ export async function render(ctx) {
       onOpen: (url) => ctx.openExternal(url),
       onOpenAsset: (path) => ctx.openAsset(path),
       onSelection: (payload) => ctx.reportFrameSelection?.(captureFrameSelection(payload)),
+      onHighlightTap: (payload) => ctx.reportFrameHighlightTap?.(payload),
       onReady: () => { frameReady = true; mounted?.applyHighlights(lastHighlights); },
     });
     watchTextScale();
@@ -385,6 +386,7 @@ export async function render(ctx) {
       onOpenAsset: (path) => ctx.openAsset(path),
       onIssue: addIssue,
       onSelection: (payload) => ctx.reportFrameSelection?.(captureFrameSelection(payload)),
+      onHighlightTap: (payload) => ctx.reportFrameHighlightTap?.(payload),
       onReady: () => { frameReady = true; mounted?.applyHighlights(lastHighlights); },
     });
   }

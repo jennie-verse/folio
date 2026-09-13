@@ -175,6 +175,22 @@ export function findTextRange(root, annotation) {
   return range;
 }
 
+// Hit-tests a tap/click point against the ranges of stored highlights so the
+// reader can tap an existing highlight to see (or start) its note, the same
+// way a text/markdown/PDF selection already opens the note editor.
+export function findAnnotationAtPoint(root, annotations, x, y) {
+  const items = (annotations || []).filter((item) => !item.deletedAt && item.kind === 'highlight' && item.quote);
+  for (const item of items) {
+    const range = findTextRange(root, item);
+    if (!range) continue;
+    const rects = range.getClientRects();
+    for (const rect of rects) {
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return item;
+    }
+  }
+  return null;
+}
+
 export function applyStoredHighlights(root, annotations) {
   if (!globalThis.CSS?.highlights || typeof globalThis.Highlight !== 'function') return () => {};
   const names = ANNOTATION_COLORS.map((color) => `folio-${color}`);
