@@ -997,6 +997,10 @@ function attachBodyGestures(body) {
   body.addEventListener('click', (event) => {
     if (window.getSelection()?.toString().trim()) return;
     if (event.target.closest('a,button,input,select,textarea,iframe,mark')) return;
+    // Don't hide the bars out from under a tap that's about to open a
+    // highlight's note editor (the click listener attachAnnotationTools adds
+    // below runs after this one and does the actual hit-test/open).
+    if (annotation.findAnnotationAtPoint(body, State.highlightRows, event.clientX, event.clientY)) return;
     $('#viewer').classList.toggle('bars-hidden');
   }, { signal });
 
