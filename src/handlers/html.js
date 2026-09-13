@@ -256,7 +256,7 @@ export async function render(ctx) {
   }
   function watchTextScale() {
     textScaleObserver?.disconnect();
-    textScaleObserver = new MutationObserver(() => { if (mounted && mode === 'read') mounted.setTextScale(currentTextScale()); });
+    textScaleObserver = new MutationObserver(() => { if (mounted && (mode === 'read' || mode === 'run')) mounted.setTextScale(currentTextScale()); });
     textScaleObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
   }
 
@@ -330,6 +330,7 @@ export async function render(ctx) {
       onScroll: (y, extra) => { ctx.saveReading({ scrollY: y }); lastLocation = extra; },
       onOpen: (url) => ctx.openExternal(url),
       onOpenAsset: (path) => ctx.openAsset(path),
+      onTap: () => ctx.reportFrameTap?.(),
       onSelection: (payload) => ctx.reportFrameSelection?.(captureFrameSelection(payload)),
       onHighlightTap: (payload) => ctx.reportFrameHighlightTap?.(payload),
       onReady: () => { frameReady = true; mounted?.applyHighlights(lastHighlights); },
@@ -384,11 +385,14 @@ export async function render(ctx) {
       onScroll: (y, extra) => { ctx.saveReading({ scrollY: y }); lastLocation = extra; },
       onOpen: (url) => ctx.openExternal(url),
       onOpenAsset: (path) => ctx.openAsset(path),
+      onTap: () => ctx.reportFrameTap?.(),
       onIssue: addIssue,
       onSelection: (payload) => ctx.reportFrameSelection?.(captureFrameSelection(payload)),
       onHighlightTap: (payload) => ctx.reportFrameHighlightTap?.(payload),
       onReady: () => { frameReady = true; mounted?.applyHighlights(lastHighlights); },
     });
+    watchTextScale();
+    mounted.setTextScale(currentTextScale());
   }
 
   function paintButtons() {
@@ -455,7 +459,7 @@ export async function render(ctx) {
 
   return {
     finder,
-    textZoomEnabled: () => mode === 'read' || mode === 'source',
+    textZoomEnabled: () => mode === 'read' || mode === 'run' || mode === 'source',
     tools: [
       segment,
       el('button', {

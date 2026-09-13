@@ -817,6 +817,15 @@ function buildContext(doc, blob, body, transient = false) {
         && (row.locator?.textQuote?.suffix || '') === (payload.suffix || ''));
       if (item) editAnnotation(item);
     },
+    // The HTML sandbox's own click handler (instrument(), preview.js) reports
+    // a tap on empty page background — not a link, not a selection, not an
+    // existing highlight — so the same "tap to hide the bars" gesture the
+    // outer body's own click listener gives text/markdown/PDF also works for
+    // Read and Run mode HTML documents, whose frame is a cross-origin sandbox
+    // and so never bubbles its clicks to that outer listener on its own.
+    reportFrameTap() {
+      $('#viewer').classList.toggle('bars-hidden');
+    },
   };
 }
 
@@ -1006,7 +1015,10 @@ function attachBodyGestures(body) {
 
   if (!textZoomAvailable()) return;
 
-  // Custom pinch, body only, so the browser's own page zoom keeps working.
+  // Custom pinch, body only. touch-action:pan-x pan-y on .vbody (assets/app.css)
+  // keeps the browser's own native page-zoom from also firing on this same
+  // gesture — without it, a pinch visibly scaled the whole screen (competing
+  // with this handler's real text-size change) instead of just resizing text.
   let startDistance = 0;
   let startIndex = 3;
   const active = new Map();
@@ -1114,7 +1126,7 @@ async function saveJournalRef(item, event) {
   return next;
 }
 
-function noteEditor({ title, note = '', color = 'core', allowColor = true } = {}) {
+function noteEditor({ title, note = '', color = 'core', allowColor = true, deleteLabel = null, onDelete = null } = {}) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
@@ -1139,6 +1151,14 @@ function noteEditor({ title, note = '', color = 'core', allowColor = true } = {}
         el('button', { class: 'primary', type: 'button', text: 'Save', onclick: () => { close(); finish({ note: textarea.value.normalize('NFC').trim(), color: selectedColor }); } }),
         el('button', { type: 'button', text: 'Cancel', onclick: () => { close(); finish(null); } }),
       ]));
+      if (onDelete) {
+        panel.appendChild(el('div', { class: 'row' }, [
+          el('button', {
+            class: 'danger', type: 'button', text: deleteLabel || 'Remove highlight',
+            onclick: async () => { close(); const deleted = await onDelete(); finish(deleted ? { deleted: true } : null); },
+          }),
+        ]));
+      }
       requestAnimationFrame(() => textarea.focus());
     }, { onDismiss: () => finish(null) });
   });
@@ -1299,8 +1319,28 @@ async function addStandaloneNote() {
 }
 
 async function editAnnotation(item) {
-  const result = await noteEditor({ title: item.quote ? 'Edit highlight' : 'Edit note', note: item.note, color: item.semanticColor, allowColor: item.kind === 'highlight' });
-  if (!result) return;
+  const result = await noteEditor({
+    title: item.quote ? 'Edit highlight' : 'Edit note',
+    note: item.note,
+    color: item.semanticColor,
+    allowColor: item.kind === 'highlight',
+    deleteLabel: item.quote ? 'Remove highlight' : 'Delete note',
+    onDelete: async () => {
+      const ok = await confirmDialog({
+        title: item.quote ? 'Remove this highlight?' : 'Delete this note?',
+        message: 'It will also be removed from Daybook after Journal syncs.',
+        confirmLabel: 'Remove',
+        danger: true,
+      });
+      if (!ok) return false;
+      await journal.deleteAnnotation(item, State.current).catch(() => false);
+      await store.softDeleteAnnotation(item.id);
+      await paintAnnotations();
+      toast('Highlight removed.');
+      return true;
+    },
+  });
+  if (!result || result.deleted) return;
   const next = { ...item, note: result.note, semanticColor: result.color, revision: Number(item.revision || 1) + 1, updatedAt: annotationTimestamp() };
   await store.putAnnotation(next);
   await saveJournalRef(next, 'updated');

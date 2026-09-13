@@ -243,7 +243,7 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .bg-swatch[data-bg="lavender"] .bg-swatch-dot{background:#F3EFF8}
 .bg-swatch[data-bg="gray"] .bg-swatch-dot{background:#F1F1EE}
 
-.vbody{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
+.vbody{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;
   padding-left:var(--safe-l);padding-right:var(--safe-r);background:var(--bg);color:var(--text)}
 .vbody.pad{padding:12px}
 /* Reading background — text/Markdown/CSV only (Document settings, "Background").
