@@ -73,7 +73,7 @@ export function instrument(session) {
     + 'function hitTest(x,y){for(var i=0;i<HLITEMS.length;i++){var it=HLITEMS[i];var rg=findRange(it.quote,it.prefix||"",it.suffix||"");if(!rg)continue;var rects=rg.getClientRects();for(var j=0;j<rects.length;j++){var r=rects[j];if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return it}}return null}'
     + 'function selCtx(){var sel=window.getSelection();if(!sel||sel.rangeCount!==1||sel.isCollapsed)return null;var quote=(sel.toString()||"").trim();if(!quote)return null;var full=(document.body&&(document.body.innerText||document.body.textContent))||"";var at=full.indexOf(quote);var rg=sel.getRangeAt(0);var node=rg.startContainer.nodeType===1?rg.startContainer:rg.startContainer.parentElement;return{quote:quote,prefix:at>=0?full.slice(Math.max(0,at-48),at):"",suffix:at>=0?full.slice(at+quote.length,at+quote.length+48):"",heading:nearestHeading(node),scrollRatio:ratio()}}'
     + 'var sf=0;function postSel(){sf=0;p("selection",selCtx()||{quote:null})}document.addEventListener("selectionchange",function(){if(sf)cancelAnimationFrame(sf);sf=requestAnimationFrame(postSel)});'
-    + 'function s(){p("scroll",{y:(window.scrollY||document.documentElement.scrollTop||0),ratio:ratio(),heading:nearestHeading(elAtTop())})}window.addEventListener("error",function(e){p("runtime-error",{message:e.message||"Preview runtime error"})},true);window.addEventListener("unhandledrejection",function(e){var v=e.reason;p("runtime-error",{message:v&&v.message||String(v||"Unhandled promise rejection")})});var r;window.addEventListener("scroll",function(){if(r)cancelAnimationFrame(r);r=requestAnimationFrame(s)},{passive:true});window.addEventListener("message",function(e){var d=e.data;if(!d||d.__folioPreview!==1||d.session!==S)return;if(d.type==="restore"){try{window.scrollTo(0,d.y||0)}catch(x){}}else if(d.type==="text-scale"){try{var ratio=Number(d.ratio)||1;if(!fsBase){fsBase=[];var all=document.querySelectorAll("*");for(var fi=0;fi<all.length;fi++){var fel=all[fi],ftag=fel.tagName;if(ftag==="SCRIPT"||ftag==="STYLE"||ftag==="TEMPLATE"||ftag==="HTML")continue;var ffs=parseFloat(getComputedStyle(fel).fontSize)||16;fsBase.push([fel,ffs])}}for(var fj=0;fj<fsBase.length;fj++){var fpair=fsBase[fj];fpair[0].style.setProperty("font-size",(fpair[1]*ratio)+"px","important")}}catch(x){}}else if(d.type==="highlights"){applyHL(d.items||[])}else if(d.type==="locate"){var rg2=d.quote?findRange(d.quote,d.prefix||"",d.suffix||""):null;if(rg2){try{var tgt=rg2.startContainer.nodeType===1?rg2.startContainer:rg2.startContainer.parentElement;tgt&&tgt.scrollIntoView&&tgt.scrollIntoView({block:"center"})}catch(x){}}else{try{var de=document.documentElement;window.scrollTo(0,(typeof d.scrollRatio==="number"?d.scrollRatio:0)*Math.max(1,de.scrollHeight-window.innerHeight))}catch(x){}}}else if(d.type==="clear-selection"){try{window.getSelection().removeAllRanges()}catch(x){}}});document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a){var sel=window.getSelection();if(sel&&!sel.isCollapsed&&(sel.toString()||"").trim())return;var hit=hitTest(e.clientX,e.clientY);if(hit){p("highlight-tap",{quote:hit.quote,prefix:hit.prefix||"",suffix:hit.suffix||"",color:hit.color||"core"});return}if(e.target&&e.target.closest&&e.target.closest("button,input,select,textarea,label,summary")){return}p("tap",{});return}var raw=a.getAttribute("href")||"";var inPkg=a.getAttribute("data-folio-path");if(inPkg){e.preventDefault();p("open-asset",{path:inPkg});return}if(raw.charAt(0)==="#"){e.preventDefault();var f=raw.slice(1),id=f;try{id=decodeURIComponent(f)}catch(x){}var target=id?document.getElementById(id):document.documentElement;if(!target&&id){var named=document.getElementsByName(id);target=named&&named[0]}if(target){try{target.scrollIntoView({block:"start"})}catch(x){target.scrollIntoView()}s()}return}if(a.hasAttribute("download"))return;var u=a.href||raw,pcol=(a.protocol||"").toLowerCase();if(pcol==="http:"||pcol==="https:"||pcol==="mailto:"||pcol==="tel:"||pcol==="sms:"){e.preventDefault();p("open",{url:u})}else if(/^javascript:/i.test(raw)){e.preventDefault();p("runtime-error",{message:"javascript: links are blocked"})}},true);function rdy(){p("ready")}if(document.readyState==="complete")rdy();else window.addEventListener("load",rdy);})();<\/scr' + 'ipt>';
+    + 'function s(){p("scroll",{y:(window.scrollY||document.documentElement.scrollTop||0),ratio:ratio(),heading:nearestHeading(elAtTop())})}window.addEventListener("error",function(e){p("runtime-error",{message:e.message||"Preview runtime error"})},true);window.addEventListener("unhandledrejection",function(e){var v=e.reason;p("runtime-error",{message:v&&v.message||String(v||"Unhandled promise rejection")})});var r;window.addEventListener("scroll",function(){if(r)cancelAnimationFrame(r);r=requestAnimationFrame(s)},{passive:true});window.addEventListener("message",function(e){var d=e.data;if(!d||d.__folioPreview!==1||d.session!==S)return;if(d.type==="restore"){try{window.scrollTo(0,d.y||0)}catch(x){}}else if(d.type==="text-scale"){try{var ratio=Number(d.ratio)||1;if(!fsBase){fsBase=[];var all=document.querySelectorAll("*");for(var fi=0;fi<all.length;fi++){var fel=all[fi],hasText=false;for(var ci=0;ci<fel.childNodes.length;ci++){var cn=fel.childNodes[ci];if(cn.nodeType===3&&cn.nodeValue.trim().length>0){hasText=true;break}}if(!hasText)continue;var ffs=parseFloat(getComputedStyle(fel).fontSize)||16;fsBase.push([fel,ffs])}}for(var fj=0;fj<fsBase.length;fj++){var fpair=fsBase[fj];fpair[0].style.setProperty("font-size",(fpair[1]*ratio)+"px","important")}}catch(x){}}else if(d.type==="highlights"){applyHL(d.items||[])}else if(d.type==="locate"){var rg2=d.quote?findRange(d.quote,d.prefix||"",d.suffix||""):null;if(rg2){try{var tgt=rg2.startContainer.nodeType===1?rg2.startContainer:rg2.startContainer.parentElement;tgt&&tgt.scrollIntoView&&tgt.scrollIntoView({block:"center"})}catch(x){}}else{try{var de=document.documentElement;window.scrollTo(0,(typeof d.scrollRatio==="number"?d.scrollRatio:0)*Math.max(1,de.scrollHeight-window.innerHeight))}catch(x){}}}else if(d.type==="clear-selection"){try{window.getSelection().removeAllRanges()}catch(x){}}});document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a){var sel=window.getSelection();if(sel&&!sel.isCollapsed&&(sel.toString()||"").trim())return;var hit=hitTest(e.clientX,e.clientY);if(hit){p("highlight-tap",{quote:hit.quote,prefix:hit.prefix||"",suffix:hit.suffix||"",color:hit.color||"core"});return}if(e.target&&e.target.closest&&e.target.closest("button,input,select,textarea,label,summary")){return}p("tap",{});return}var raw=a.getAttribute("href")||"";var inPkg=a.getAttribute("data-folio-path");if(inPkg){e.preventDefault();p("open-asset",{path:inPkg});return}if(raw.charAt(0)==="#"){e.preventDefault();var f=raw.slice(1),id=f;try{id=decodeURIComponent(f)}catch(x){}var target=id?document.getElementById(id):document.documentElement;if(!target&&id){var named=document.getElementsByName(id);target=named&&named[0]}if(target){try{target.scrollIntoView({block:"start"})}catch(x){target.scrollIntoView()}s()}return}if(a.hasAttribute("download"))return;var u=a.href||raw,pcol=(a.protocol||"").toLowerCase();if(pcol==="http:"||pcol==="https:"||pcol==="mailto:"||pcol==="tel:"||pcol==="sms:"){e.preventDefault();p("open",{url:u})}else if(/^javascript:/i.test(raw)){e.preventDefault();p("runtime-error",{message:"javascript: links are blocked"})}},true);function rdy(){p("ready")}if(document.readyState==="complete")rdy();else window.addEventListener("load",rdy);})();<\/scr' + 'ipt>';
 }
 
 /** Insert at the very top of <head> so shims run before any document script. */
@@ -209,40 +209,51 @@ export function mount(container, options) {
     frame,
     session,
     /** Rescale the mounted document's TEXT ONLY (ratio 1 = the document's own
-        default). Two earlier approaches both broke on real-world documents
-        and are worth recording so nobody goes back to them:
+        default) — like a reader app's text-size slider (Kindle, Books): the
+        reading column stays the same width and only the glyphs change size,
+        so a smaller size naturally fits more characters per line and a
+        larger one fewer. Three earlier approaches all broke on real-world
+        documents; recorded here so nobody re-introduces them:
           · Overriding `html`'s font-size seems obvious, but `rem` units are
             always relative to the root element — a document that sizes its
             reading column in `rem` (a common max-width/padding technique)
             had that column narrow right along with an `html` override,
             making the page narrower exactly when the text was made smaller.
-          · Overriding only `body`'s font-size dodges `rem`, but most
-            real documents give their own headings/boxes/tables an EXPLICIT
-            px font-size (this is the common case, not the exception) —
-            those never inherit from `body` at all, so they stayed fixed
-            size while `ch`-based widths (another common readable-column
-            unit, relative to the *current* element's own font, not just
-            the root) still shrank with `body`. Net effect on a document
-            using both patterns together: shrinking the control narrowed the
-            column while leaving most of the visible text (headings first)
-            completely unchanged in size (build 2026.09.13-readerux2's
-            regression) — the opposite of what a text-size control should do.
-        What actually works: walk every element ONCE on the first resize and
-        remember its own current computed font-size (`fsBase` in
-        instrument()'s message handler, below), then on every ratio change
-        set each element's font-size directly to baseline*ratio via its
-        OWN inline style (`!important`, so it always wins over the
-        document's own CSS regardless of what that element set). Every
-        element scales proportionally to its OWN original size — headings
-        stay bigger than body text, `ch`/`em`-based widths shrink or grow in
-        lockstep with the text that defines them instead of independently —
-        with the SAME `html` element deliberately left alone so any `rem`
-        elsewhere is undisturbed. It never touches CSS `zoom` either, which
-        would also scale images, borders and anything else measured in
-        absolute units; the point of a text-size control is that it leaves
-        those alone. Silently a no-op until the inner frame has requested
-        `innerSandbox` with allow-scripts — a plain, un-instrumented Read
-        frame simply never acts on the message. */
+          · Overriding only `body`'s font-size dodges `rem`, but most real
+            documents give their own headings/boxes/tables an EXPLICIT px
+            font-size (the common case, not the exception) — those never
+            inherit from `body` at all, so they stayed fixed size while
+            `ch`-based widths (another common readable-column unit, relative
+            to the *current* element's own font, not the root) still shrank
+            with `body`. Net effect: the column narrowed while most visible
+            text (headings first) stayed the same size (2026.09.13-readerux2).
+          · Overriding EVERY element's own font-size (walking the whole tree)
+            fixed the previous bug — headings resized too — but a document's
+            `ch`/`rem`/`em`-sized layout containers (`.wrap{max-width:72ch}`
+            and similar) got walked and rescaled right along with the text,
+            so the reading column still visibly narrowed or widened in
+            lockstep with the font size, just no longer disproportionately.
+            Confirmed with the user's own reported document (a Coursera
+            reading note using exactly this `ch` pattern) and directly
+            contradicts what a "text size" control should do: keep the page
+            layout put, resize only the glyphs (2026.09.13-readerux3).
+        What actually works: only rescale elements that render text
+        THEMSELVES — an element with at least one direct child Text node
+        carrying non-whitespace content (`fsBase` below). A pure layout
+        wrapper (`.wrap`, `.card`, any `<div>` that only contains OTHER
+        elements, no text of its own) is never touched, so whatever `ch`,
+        `rem` or `em` math its own CSS does for width/padding keeps using
+        its ORIGINAL, undisturbed font-size — the column stays put. Every
+        text-bearing element still scales proportionally to its own original
+        size (so headings stay bigger than body text) via its own inline
+        style (`!important`, so it always wins over the document's CSS no
+        matter what that element set), computed once on the first resize and
+        reused on every later ratio change. It never touches CSS `zoom`
+        either, which would also scale images, borders and anything else
+        measured in absolute units; the point of a text-size control is that
+        it leaves those alone. Silently a no-op until the inner frame has
+        requested `innerSandbox` with allow-scripts — a plain,
+        un-instrumented Read frame simply never acts on the message. */
     setTextScale(ratio) {
       const message = { protocol: PROTOCOL, session, type: 'text-scale', ratio: Number(ratio) || 1 };
       try { frame.contentWindow.postMessage(message, '*'); } catch { /* frame gone */ }
