@@ -105,18 +105,21 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
   padding:calc(var(--safe-t) + 4px) calc(var(--safe-r) + 12px) 4px calc(var(--safe-l) + 12px);
   background:var(--bg);border-bottom:1px solid var(--line);
 }
-/* iOS 27 has been seen reporting safe-area-inset-top as 0 on a standalone-PWA
-   cold launch, letting the status bar/Dynamic Island cover the title and
-   search row. The 48px floor below is scoped narrowly:
+/* iOS 27 has been seen reporting safe-area-inset-top as 0 (or too small) on
+   a standalone-PWA cold launch, letting the status bar/Dynamic Island cover
+   the title and search row. The floor below is scoped narrowly:
    - portrait + phone width, so landscape (notch moves to the side, 4px is
-     already correct) and iPad (~24px real inset; 48px left a visibly
-     oversized gap) aren't touched;
+     already correct) and iPad (~24px real inset; a big floor here left a
+     visibly oversized gap) aren't touched;
    - min-height:668px, so notch-less iPhone SE/8-class phones (375×667,
      safe-area-inset-top is legitimately 0 — the status bar there is opaque
      and never overlays content) don't get a false-positive floor. Every
-     notched or Dynamic Island iPhone is 812pt tall or more in portrait. */
+     notched or Dynamic Island iPhone is 812pt tall or more in portrait.
+   32px was 48px until 2026-09-16 — reported as sitting noticeably lower
+   than before the fix, so it's been pulled back closer to the original
+   4px, while staying enough above 4px to clear a misreporting inset. */
 @media(max-width:500px) and (min-height:668px) and (orientation:portrait){
-  .topbar{padding-top:max(calc(var(--safe-t) + 4px),48px)}
+  .topbar{padding-top:max(calc(var(--safe-t) + 4px),32px)}
 }
 .topbar h1{margin:0;font-size:var(--fs-title);font-weight:700;letter-spacing:-.01em}
 .topbar .grow{flex:1;min-width:0}
@@ -229,7 +232,7 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
   /* Same iOS 27 safe-area-inset-top floor as .topbar above — bars-hidden
      reading mode has no border to hide the seam, so a misreport here reads
      as the first line of text vanishing under the status bar. */
-  #viewer.bars-hidden .vbody{padding-top:max(var(--safe-t),44px)}
+  #viewer.bars-hidden .vbody{padding-top:max(var(--safe-t),28px)}
 }
 
 .vtitle{flex:1;min-width:96px;min-height:var(--tap);text-align:left;
