@@ -92,6 +92,17 @@ export async function patchDocument(id, patch) {
   return next;
 }
 
+/** Custom-order positions only. Deliberately leaves `updatedAt` alone: an
+    arrangement is a local view preference, not a content change to sync. */
+export async function setSortOrders(assignments) {
+  await db.transaction('rw', db.documents, async () => {
+    for (const { id, sortOrder } of assignments) {
+      const doc = await db.documents.get(id);
+      if (doc && doc.sortOrder !== sortOrder) await db.documents.put({ ...doc, sortOrder });
+    }
+  });
+}
+
 /** The only place the retention clock is reset (plan 7장).
     Opening, renaming, editing tags, unpinning and a successful reconnect call
     this. Rendering, searching and app startup deliberately do not. */

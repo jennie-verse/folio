@@ -494,3 +494,38 @@ Highlight 저장 → 수정 전에는(코드 리뷰로 확인) 첫 번째 등장
       (음질·전환 시 끊김 여부), 화면 잠금·백그라운드 전환 시 재생 중단 여부
 - [ ] 기기에 한국어 음성 데이터가 없는 경우(구형 기기, 언어팩 미설치)의 동작
 - [ ] VoiceOver 등 스크린리더 사용 중 `Read aloud` 버튼과의 상호작용
+
+## 2026-09-18 — 선택 모드 확장(삭제·폴더 이동)과 정렬 옵션·Custom order 추가 (빌드 `2026.09.18-batchselect1`)
+
+**요청**: 파일 목록의 Select 기능에 (1) 선택한 파일 삭제, (2) 선택한 파일을 특정 폴더로 이동, (3) 정렬
+선택 추가(가능하면 사용자 지정 순서)를 넣어 달라는 요청.
+
+**변경**
+
+- 선택 바: `Select all`(현재 목록에 보이는 문서 전체) · `Clear` · `Move to folder` · `Delete` ·
+  `Export .md`. 폴더·검색·필터를 바꾸면 안 보이는 문서는 선택에서 자동 제외(숨은 문서가 실수로
+  삭제·이동되지 않게).
+- `Delete`: 확인 창 뒤에 기존 단건 삭제와 같은 soft delete + 5초 `Undo`. 동기화 tombstone은 Undo 창이
+  닫힌 뒤에만 기록(기존 규칙 유지). 단건 삭제도 같은 경로(`deleteDocuments`)를 공유.
+- `Move to folder`: `Unsorted`/기존 폴더/`+ New folder…`. 이동 후 선택 모드 종료, Sync 예약.
+- 정렬: 기존 5종에 `Date added (oldest)`, `Title Z–A`, `Size (smallest)`, `Custom order` 추가.
+  `Custom order`는 `⤒ ↑ ↓` 버튼으로 배열 후 `Save order`. 폴더 탭이 선택돼 있으면 그 폴더 문서끼리만
+  순서를 바꾸고 나머지 순서는 유지. `sortOrder`는 `updatedAt`을 건드리지 않고 저장(Sync 대상 아님).
+- 새 IndexedDB 스키마 변경 없음(`sortOrder`는 인덱스 없는 일반 필드) — 기존 데이터·백업 호환.
+
+**자동 테스트**: `npm test` 100/100 → 신규 `tests/library-sort.test.mjs` 포함 전체 통과, `npm run test:syntax` 통과.
+
+**실제 브라우저(375×812)로 직접 확인한 것**
+
+- 선택 바 버튼 6개 모두 44px 높이, 화면 안에 위치. 선택 2건 → `Move to folder` → `Work`: 2건 이동, 선택
+  모드 종료, 폴더 탭 개수 갱신.
+- `Delete`: 확인 문구 표시 → 삭제 → `Undo`로 4건 복구, 다시 삭제 후 5초 뒤 실제로 스토어에서 제거.
+- 다른 폴더 탭으로 이동 시 선택 0으로 정리됨. `Title Z–A` 적용, `Custom order`(첫 사용 시 배열 시트 자동
+  열림) → 맨 아래 문서 `⤒` → 저장 → 새로고침 후에도 순서·정렬 설정 유지.
+- 내장 브라우저는 Service Worker 등록 자체를 못 하는 환경이라 콘솔에 그 오류만 나타남(변경과 무관).
+
+**Pending — 실기기 확인 필요**
+
+- [ ] iPhone/iPad Safari에서 선택 바 2줄 레이아웃(홈 인디케이터 Safe Area 포함)과 6px~17px 글자 크기
+- [ ] 문서가 수백 건일 때 `Custom order` 시트의 스크롤·버튼 반응
+- [ ] Add to Home Screen 앱에서 새 빌드로 갱신되는지(캐시 버전 `2026.09.18-batchselect1`)

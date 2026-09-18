@@ -24,8 +24,8 @@
 | 요소 | 뜻 |
 |---|---|
 | 검색창 **Search documents** | 제목·파일명·태그·본문을 한 번에 찾습니다 |
-| **⋯ Library** | `Sort` · `Filter by type` · `Filter by tag` · `Folders` · `My highlights and notes`를 모아 놓은 메뉴 |
-| **☑ Select** | 여러 문서를 골라 주석을 하나의 Markdown으로 묶어 내보내기 |
+| **⋯ Library** | `Sort` · `Custom order…` · `Filter by type` · `Filter by tag` · `Folders` · `My highlights and notes`를 모아 놓은 메뉴 |
+| **☑ Select** | 여러 문서를 골라 한꺼번에 폴더로 옮기기·삭제·주석 Markdown 내보내기 |
 | **Continue** 줄 | 최근에 보던 문서 3건. 가는 선이 어디까지 읽었는지 보여 줍니다 |
 | 상태 칩 | `All` `Pinned` `Needs file` `Recent` |
 
@@ -50,18 +50,31 @@
 글자 크기를 6px·8px로 줄이면 Continue 줄은 자동으로 접히고 화면이 순수한
 목록이 됩니다.
 
-### 여러 문서 묶어 내보내기(Select → Export selected .md)
+### 여러 문서 한꺼번에 다루기(Select)
 
 1. Library 상단의 **☑ Select**를 누릅니다. 문서 줄마다 체크박스가 나타나고,
    탭하면 열기 대신 선택됩니다.
-2. 원하는 만큼 고르면(**최대 50개, 합쳐서 5MB**) 아래 바에 선택 개수가 뜨고
-   `Export selected .md`가 활성화됩니다. `Clear`로 선택을 비울 수 있습니다.
-3. `Export selected .md`를 누르면 순서를 정하는 화면이 열립니다. **기본
+2. 아래 바에 선택 개수가 뜹니다. `Select all`은 **지금 목록에 보이는 문서**를
+   모두 고르고, `Clear`는 선택을 비웁니다. 폴더 탭·검색·필터를 바꾸면 화면에서
+   사라진 문서는 선택에서 자동으로 빠집니다(안 보이는 문서가 실수로 삭제되지 않게).
+3. 선택한 문서에 쓸 수 있는 동작:
+   - **`Move to folder`** — 폴더 목록(`Unsorted` 포함)에서 하나를 고르면 선택한
+     문서가 모두 그 폴더로 옮겨집니다. 맞는 폴더가 없으면 `+ New folder…`로 바로
+     만들어 넣을 수 있습니다.
+   - **`Delete`** — 확인 창(`Delete N documents?`)에서 `Delete`를 누르면 지워지고,
+     그 뒤 **5초 동안 `Undo`** 로 되돌릴 수 있습니다. 5초가 지나면 노트·하이라이트를
+     포함해 완전히 삭제됩니다.
+   - **`Export .md`** — 아래 "주석 묶어 내보내기" 참고.
+
+#### 주석 묶어 내보내기(Export .md)
+
+1. 원하는 만큼 고르면(**최대 50개, 합쳐서 5MB**) `Export .md`가 활성화됩니다.
+2. `Export .md`를 누르면 순서를 정하는 화면이 열립니다. **기본
    순서는 제목 오름차순**이고, 각 문서의 `↑ Up`/`↓ Down`으로 순서를 바꿉니다.
-4. `Export selected .md`(공유/다운로드) 또는 `Copy Markdown`(클립보드로 복사)
+3. `Export selected .md`(공유/다운로드) 또는 `Copy Markdown`(클립보드로 복사)
    중 고릅니다. 공유가 가능하면 Apple 공유 시트가 열리고, 안 되면 자동으로
    `.md` 파일 다운로드로 대체됩니다.
-5. 결과는 **하나의 Markdown 파일**(`folio-notes-YYYY-MM-DD.md`)입니다. 문서마다
+4. 결과는 **하나의 Markdown 파일**(`folio-notes-YYYY-MM-DD.md`)입니다. 문서마다
    `##` 제목으로 구분되고, 그 아래 하이라이트·메모가 기존 문서별 내보내기와
    같은 형식으로 들어갑니다. **주석이 하나도 없는 문서도 포함되며**, 그 자리에
    `_No annotations._`라고 표시됩니다 — 조용히 빠지지 않습니다.
@@ -87,6 +100,22 @@
 `Move to folder`(폴더로 이동) · `Export original`(원본 내보내기) · `Delete`(삭제)
 
 ---
+
+
+### 정렬(Sort)과 사용자 지정 순서(Custom order)
+
+`⋯ Library` → `Sort`에서 고릅니다: `Recently opened` · `Date added (newest/oldest)` ·
+`Title A–Z / Z–A`(한글이 영문보다 먼저) · `Size (largest/smallest)` · `Type` · `Custom order`.
+고정(Pin)한 문서는 `Title`과 `Custom order`를 제외한 모든 정렬에서 맨 위에 옵니다.
+
+**Custom order(내 마음대로 순서)**
+
+1. `⋯ Library` → `Custom order…`(또는 `Sort` → `Custom order`)를 엽니다.
+2. 문서마다 `⤒`(맨 위로) · `↑` · `↓` 버튼으로 순서를 바꾸고 `Save order`를 누릅니다.
+   저장하면 정렬이 자동으로 `Custom order`가 됩니다.
+3. 폴더 탭을 고른 상태에서 열면 **그 폴더의 문서만** 정렬하고, 다른 폴더의 순서는
+   그대로입니다. 새로 가져온 문서는 저장된 순서 위쪽(맨 위)에 나타납니다.
+4. 순서는 이 기기에만 저장되며(Sync로 올라가지 않음) 백업 파일에는 포함됩니다.
 
 ## 3. 문서 보기(Viewer)
 

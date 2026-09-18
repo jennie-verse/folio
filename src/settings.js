@@ -19,7 +19,7 @@ const DEFAULTS = Object.freeze({
   theme: 'system',            // system | light | dark
   docBg: 'auto',              // auto | sepia | mint | sky | lavender | gray
   retentionDays: 7,
-  sort: 'recent',             // recent | added | title | size | kind
+  sort: 'recent',             // recent | added | added-asc | title | title-desc | size | size-asc | kind | custom
   stateFilter: 'all',         // all | pinned | needs | recent
   typeFilter: [],             // empty = every kind
   tagFilter: [],               // empty = every tag; a document must carry ALL listed tags
@@ -32,7 +32,7 @@ const RESTORE_KEYS = new Set([
   'fs', 'theme', 'docBg', 'retentionDays', 'sort', 'stateFilter', 'typeFilter', 'tagFilter',
   'releaseConfirmed', 'viewerHintSeen',
 ]);
-const SORTS = new Set(['recent', 'added', 'title', 'size', 'kind']);
+const SORTS = new Set(['recent', 'added', 'added-asc', 'title', 'title-desc', 'size', 'size-asc', 'kind', 'custom']);
 const STATE_FILTERS = new Set(['all', 'pinned', 'needs', 'recent']);
 const TYPES = new Set(['text', 'markdown', 'html', 'html-package', 'pdf', 'csv', 'image']);
 

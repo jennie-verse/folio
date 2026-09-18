@@ -57,25 +57,61 @@ export async function filterDocuments(docs, { query, stateFilter, typeFilter, ta
   return { list, retentionDays };
 }
 
+/** Custom order: documents the user has arranged carry a numeric `sortOrder`.
+    Documents that were added after the last arrangement have none yet and
+    sit above the arranged ones, newest first, so a fresh import is visible. */
+function compareCustom(a, b) {
+  const ao = Number.isFinite(a.sortOrder) ? a.sortOrder : null;
+  const bo = Number.isFinite(b.sortOrder) ? b.sortOrder : null;
+  if (ao === null && bo === null) return (b.addedAt || 0) - (a.addedAt || 0);
+  if (ao === null) return -1;
+  if (bo === null) return 1;
+  return ao - bo;
+}
+
 export function sortDocuments(docs, mode) {
   const list = docs.slice();
   const byString = (a, b) => String(a || '').localeCompare(String(b || ''), ['ko', 'en']);
   switch (mode) {
     case 'added': list.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)); break;
+    case 'added-asc': list.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0)); break;
     case 'title': list.sort((a, b) => byString(a.title, b.title)); break;
+    case 'title-desc': list.sort((a, b) => byString(b.title, a.title)); break;
     case 'size': list.sort((a, b) => (b.size || 0) - (a.size || 0)); break;
+    case 'size-asc': list.sort((a, b) => (a.size || 0) - (b.size || 0)); break;
     case 'kind': list.sort((a, b) => byString(a.kind, b.kind) || byString(a.title, b.title)); break;
+    case 'custom': list.sort(compareCustom); break;
     default: list.sort((a, b) => (b.lastTouchedAt || 0) - (a.lastTouchedAt || 0));
   }
-  // Pins float to the top of every ordering except an explicit title sort.
-  if (mode !== 'title') list.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+  // Pins float to the top of every ordering except an explicit title sort or
+  // the user's own custom order (which already says exactly where each goes).
+  if (mode !== 'title' && mode !== 'title-desc' && mode !== 'custom') {
+    list.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+  }
   return list;
+}
+
+/** Turns a rearranged subset (what the user sees under the current filter)
+    into a `sortOrder` for every document. Documents outside the subset keep
+    their place; the subset's documents just trade among their own slots. */
+export function customOrderAssignments(allDocs, rearranged) {
+  const full = sortDocuments(allDocs, 'custom');
+  const inSubset = new Set(rearranged.map((doc) => doc.id));
+  const slots = [];
+  full.forEach((doc, index) => { if (inSubset.has(doc.id)) slots.push(index); });
+  const next = full.slice();
+  slots.forEach((slot, k) => { next[slot] = rearranged[k]; });
+  return next.map((doc, index) => ({ id: doc.id, sortOrder: index }));
 }
 
 export const SORT_OPTIONS = [
   { value: 'recent', label: 'Recently opened' },
-  { value: 'added', label: 'Date added' },
-  { value: 'title', label: 'Title' },
-  { value: 'size', label: 'Size' },
+  { value: 'added', label: 'Date added (newest)' },
+  { value: 'added-asc', label: 'Date added (oldest)' },
+  { value: 'title', label: 'Title A–Z' },
+  { value: 'title-desc', label: 'Title Z–A' },
+  { value: 'size', label: 'Size (largest)' },
+  { value: 'size-asc', label: 'Size (smallest)' },
   { value: 'kind', label: 'Type' },
+  { value: 'custom', label: 'Custom order' },
 ];

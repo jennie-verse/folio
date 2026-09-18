@@ -180,8 +180,14 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .docrow.selected{border-color:var(--rose);border-left-color:var(--rose)}
 .docrow.selected .selectbox{background:var(--rose);border-color:var(--rose)}
 
-#selectionBar{justify-content:space-between}
+#selectionBar{flex-direction:column;align-items:stretch;gap:6px}
+#selectionBar .selrow{display:flex;align-items:center;gap:8px}
+#selectionBar .selrow > .grow{flex:1 1 0;min-width:0}
 #selectionBar #selectionCount{flex:1;min-width:0}
+.arrange-list{display:grid;gap:6px;margin:10px 0}
+.arrange-item{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg)}
+.arrange-item .arrange-title{flex:1;min-width:0;overflow-wrap:anywhere}
+.arrange-item button{flex:0 0 auto;padding:0 8px}
 
 .tag{
   display:inline-flex;align-items:center;justify-content:center;

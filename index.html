@@ -70,9 +70,16 @@
       <input class="sr-only" id="reconnectPicker" type="file" aria-hidden="true" tabindex="-1">
     </footer>
     <footer class="bottombar hidden" id="selectionBar">
-      <span class="grow small muted" id="selectionCount">0 selected</span>
-      <button class="icon" id="btnSelectClear" aria-label="Clear selection">Clear</button>
-      <button class="primary" id="btnSelectNext" disabled>Export selected .md</button>
+      <div class="selrow">
+        <span class="grow small muted" id="selectionCount" role="status">0 selected</span>
+        <button id="btnSelectAll" type="button">Select all</button>
+        <button id="btnSelectClear" type="button" aria-label="Clear selection">Clear</button>
+      </div>
+      <div class="selrow">
+        <button class="grow" id="btnSelectMove" type="button" disabled>Move to folder</button>
+        <button class="grow danger" id="btnSelectDelete" type="button" disabled>Delete</button>
+        <button class="primary grow" id="btnSelectNext" type="button" disabled>Export .md</button>
+      </div>
     </footer>
   </section>
 

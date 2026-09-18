@@ -56,6 +56,7 @@ const State = {
   annotationObserver: null,
   selectMode: false,
   selectedIds: new Set(),
+  visibleDocs: [],     // what the library currently shows, in order (select-all, Arrange)
   annotationColorFilter: null,
   viewerTools: [],
 };
@@ -207,6 +208,14 @@ async function refreshLibrary() {
     retentionDays: days,
   });
   const ordered = search.sortDocuments(filtered, settings.get('sort'));
+  State.visibleDocs = ordered;
+  // Selection only ever covers documents the user can see: changing a folder,
+  // filter or search must not leave hidden rows selected for Delete/Move.
+  if (State.selectMode) {
+    const visible = new Set(ordered.map((doc) => doc.id));
+    State.selectedIds.forEach((id) => { if (!visible.has(id)) State.selectedIds.delete(id); });
+    updateSelectionBar();
+  }
   const annotationCounts = await store.annotationCounts();
   const folderNames = new Map(State.folders.map((folder) => [folder.id, folder.name]));
 
@@ -242,12 +251,69 @@ async function refreshLibrary() {
   if (!State.selectMode) await refreshContinue();
 }
 
-/* ── multi-select (Export selected .md) ───────────────────────────────── */
+/* ── multi-select (Export / Move to folder / Delete) ──────────────────── */
 
 function updateSelectionBar() {
   const count = State.selectedIds.size;
   $('#selectionCount').textContent = `${count} selected`;
-  $('#btnSelectNext').disabled = count === 0;
+  ['#btnSelectNext', '#btnSelectMove', '#btnSelectDelete'].forEach((id) => { $(id).disabled = count === 0; });
+  $('#btnSelectAll').disabled = !State.visibleDocs.length || count === State.visibleDocs.length;
+}
+
+function selectAllVisible() {
+  State.visibleDocs.forEach((doc) => State.selectedIds.add(doc.id));
+  updateSelectionBar();
+  refreshLibrary();
+}
+
+function selectedDocs() {
+  return State.visibleDocs.filter((doc) => State.selectedIds.has(doc.id));
+}
+
+async function deleteSelected() {
+  const docs = selectedDocs();
+  if (!docs.length) return;
+  const ok = await confirmDialog({
+    title: `Delete ${docs.length} document${docs.length === 1 ? '' : 's'}?`,
+    message: 'Notes and highlights on them are deleted too. You can undo for 5 seconds afterwards.',
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  if (!ok) return;
+  setSelectMode(false);
+  await deleteDocuments(docs);
+}
+
+/** "Move to folder" for the whole selection. Also offers a new folder, since
+    the usual reason to move many files at once is that no folder fits yet. */
+function openMoveSelectedSheet() {
+  const docs = selectedDocs();
+  if (!docs.length) return;
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: `Move ${docs.length} to folder` }));
+    const menu = el('menu');
+    const moveTo = async (folder) => {
+      close();
+      const id = folder ? folder.id : null;
+      for (const doc of docs) {
+        if ((doc.folderId || null) !== id) await store.patchDocument(doc.id, { folderId: id });
+      }
+      setSelectMode(false);
+      toast(`Moved ${docs.length} to ${folder ? folder.name : 'Unsorted'}.`);
+      syncRunner.schedulePush();
+    };
+    const item = (label, run) => menu.appendChild(el('li', {}, [el('button', { type: 'button', text: label, onclick: run })]));
+    item('Unsorted', () => moveTo(null));
+    State.folders.forEach((folder) => item(folder.name, () => moveTo(folder)));
+    item('+ New folder…', async () => {
+      close();
+      const name = await promptText('New folder', 'Folder name', '');
+      if (name === null) return;
+      try { moveTo(await folders.createFolder(name)); } catch (error) { toast(error.message || 'Could not create the folder.'); }
+    });
+    panel.appendChild(menu);
+    panel.appendChild(el('button', { type: 'button', text: 'Cancel', onclick: close }));
+  });
 }
 
 function setSelectMode(on) {
@@ -585,30 +651,37 @@ function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-/** Single delete is undoable, so it runs without a dialog (spec 7장).
+/** Delete is undoable, so it runs without a dialog for one document (spec 7장);
+    a multi-select delete asks first (deleteSelected) and shares this path.
     The sync tombstone is written only after the Undo window closes. */
-async function deleteDocument(doc) {
-  if (State.current && State.current.id === doc.id) await closeViewer();
-  await store.softDelete(doc.id);
+async function deleteDocument(doc) { await deleteDocuments([doc]); }
+
+async function deleteDocuments(docs) {
+  if (State.current && docs.some((doc) => doc.id === State.current.id)) await closeViewer();
+  for (const doc of docs) await store.softDelete(doc.id);
   await refreshLibrary();
 
   const timer = setTimeout(async () => {
-    State.pendingUndo.delete(doc.id);
-    const annotations = await store.listAnnotations(doc.id, { includeDeleted: true });
-    for (const item of annotations) await journal.deleteAnnotation(item, doc).catch(() => false);
-    const removed = await store.finalizeDelete(doc.id);
-    if (removed) sync.markDeleted(removed);
+    for (const doc of docs) {
+      State.pendingUndo.delete(doc.id);
+      const annotations = await store.listAnnotations(doc.id, { includeDeleted: true });
+      for (const item of annotations) await journal.deleteAnnotation(item, doc).catch(() => false);
+      const removed = await store.finalizeDelete(doc.id);
+      if (removed) sync.markDeleted(removed);
+    }
     search.invalidateTextIndex();
     syncRunner.schedulePush();
   }, 5000);
-  State.pendingUndo.set(doc.id, timer);
+  docs.forEach((doc) => State.pendingUndo.set(doc.id, timer));
 
-  toast('Deleted.', {
+  toast(docs.length === 1 ? 'Deleted.' : `Deleted ${docs.length} documents.`, {
     actionLabel: 'Undo',
     onAction: async () => {
-      clearTimeout(State.pendingUndo.get(doc.id));
-      State.pendingUndo.delete(doc.id);
-      await store.undoDelete(doc.id);
+      clearTimeout(timer);
+      for (const doc of docs) {
+        State.pendingUndo.delete(doc.id);
+        await store.undoDelete(doc.id);
+      }
       await refreshLibrary();
     },
   });
@@ -1489,6 +1562,7 @@ function openLibraryMenu() {
     panel.appendChild(el('h2', { text: 'Library' }));
     panel.appendChild(el('div', { class: 'row' }, [
       el('button', { type: 'button', text: 'Sort', onclick: () => { close(); openSortPicker(); } }),
+      el('button', { type: 'button', text: 'Custom order…', onclick: () => { close(); openArrangeSheet(); } }),
       el('button', { type: 'button', text: 'Filter by type', onclick: () => { close(); openTypeFilterSheet(); } }),
       el('button', { type: 'button', text: 'Filter by tag', onclick: () => { close(); openTagFilterSheet(); } }),
       el('button', { type: 'button', text: 'Folders', onclick: () => { close(); openFoldersSheet(); } }),
@@ -1501,7 +1575,59 @@ async function openSortPicker() {
   const picked = await choose('Sort', search.SORT_OPTIONS, settings.get('sort'));
   if (!picked) return;
   settings.set('sort', picked);
+  // Nothing has been arranged yet, so "Custom order" would just look like
+  // Date added — go straight to arranging instead.
+  if (picked === 'custom' && !State.docs.some((doc) => Number.isFinite(doc.sortOrder))) { openArrangeSheet(); return; }
   refreshLibrary();
+}
+
+/** Custom order: move documents up/down/to top, then Save. Works on what the
+    library currently shows (its folder/filter), so a big library can be
+    arranged one folder at a time. */
+function openArrangeSheet() {
+  const items = search.sortDocuments(State.visibleDocs, 'custom');
+  if (items.length < 2) { toast('Nothing to arrange here.'); refreshLibrary(); return; }
+  customSheet((panel, close) => {
+    panel.appendChild(el('h2', { text: 'Custom order' }));
+    panel.appendChild(el('p', { class: 'small muted', text: 'Arranges the documents shown in the library right now. Save to use this order.' }));
+    panel.appendChild(el('div', { class: 'row' }, [
+      el('button', {
+        class: 'primary grow', type: 'button', text: 'Save order',
+        onclick: async () => {
+          close();
+          await store.setSortOrders(search.customOrderAssignments(State.docs, items));
+          settings.set('sort', 'custom');
+          await refreshLibrary();
+          toast('Custom order saved.');
+        },
+      }),
+      el('button', { type: 'button', text: 'Cancel', onclick: () => { close(); refreshLibrary(); } }),
+    ]));
+    const list = el('div', { class: 'arrange-list' });
+    const render = (focusKey) => {
+      const keep = panel.scrollTop;
+      clear(list);
+      items.forEach((doc, index) => {
+        const label = doc.title || doc.fileName || 'Untitled';
+        const swap = (to) => { [items[to], items[index]] = [items[index], items[to]]; };
+        const move = (key, text, aria, disabled, run) => el('button', {
+          type: 'button', text, 'aria-label': `${aria} ${label}`, disabled, dataset: { key: `${doc.id}:${key}` },
+          onclick: () => { run(); render(`${doc.id}:${key}`); },
+        });
+        list.appendChild(el('div', { class: 'arrange-item' }, [
+          el('span', { class: 'arrange-title', text: label }),
+          move('top', '⤒', 'Move to top:', index === 0, () => { items.unshift(items.splice(index, 1)[0]); }),
+          move('up', '↑', 'Move up:', index === 0, () => swap(index - 1)),
+          move('down', '↓', 'Move down:', index === items.length - 1, () => swap(index + 1)),
+        ]));
+      });
+      panel.scrollTop = keep;
+      const target = focusKey && list.querySelector(`[data-key="${CSS.escape(focusKey)}"]:not([disabled])`);
+      if (target) target.focus({ preventScroll: true });
+    };
+    render();
+    panel.appendChild(list);
+  });
 }
 
 function openTypeFilterSheet() {
@@ -2177,6 +2303,9 @@ function wire() {
   $('#btnSelectMode').addEventListener('click', () => setSelectMode(!State.selectMode));
   $('#btnSelectClear').addEventListener('click', clearSelection);
   $('#btnSelectNext').addEventListener('click', openExportSelectedSheet);
+  $('#btnSelectAll').addEventListener('click', selectAllVisible);
+  $('#btnSelectMove').addEventListener('click', openMoveSelectedSheet);
+  $('#btnSelectDelete').addEventListener('click', deleteSelected);
 
   $$('#stateChips .chip').forEach((chip) => {
     chip.addEventListener('click', () => {
