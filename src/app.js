@@ -172,7 +172,13 @@ async function applyRemoteFolderTags(remoteList) {
 
 /* ── library ───────────────────────────────────────────────────────────── */
 
+// Several actions (exit select mode, then delete/move) can request a refresh
+// back to back. Each call takes a ticket; a call that is no longer the latest
+// stops before touching the DOM, so rows can never be painted twice.
+let refreshTicket = 0;
+
 async function refreshLibrary() {
+  const ticket = ++refreshTicket;
   try {
     State.docs = await store.listDocuments();
     State.folders = await folders.listFolders();
@@ -181,6 +187,7 @@ async function refreshLibrary() {
     State.storageOk = false;
   }
 
+  if (ticket !== refreshTicket) return;
   const list = $('#docList');
   const stateHost = $('#libraryState');
   clear(list);
@@ -207,6 +214,7 @@ async function refreshLibrary() {
     folderFilter,
     retentionDays: days,
   });
+  if (ticket !== refreshTicket) return;
   const ordered = search.sortDocuments(filtered, settings.get('sort'));
   State.visibleDocs = ordered;
   // Selection only ever covers documents the user can see: changing a folder,
@@ -217,6 +225,7 @@ async function refreshLibrary() {
     updateSelectionBar();
   }
   const annotationCounts = await store.annotationCounts();
+  if (ticket !== refreshTicket) return;
   const folderNames = new Map(State.folders.map((folder) => [folder.id, folder.name]));
 
   paintFolderTabs();
