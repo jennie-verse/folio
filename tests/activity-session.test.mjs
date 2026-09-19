@@ -33,6 +33,18 @@ function makeClock(start) {
   return { now: () => t, advance: (ms) => { t += ms; return t; }, get: () => t };
 }
 
+// Tests advance the clock by hours. Starting from the real "now" made them fail
+// whenever the suite ran within ~2h20m before local midnight, because the
+// tracker (correctly) splits a session at midnight. Yesterday 10:00 local is
+// always in the past, inside the ledger's 90-day window, and leaves 14 hours
+// of headroom before the next midnight.
+function midMorning() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  d.setHours(10, 0, 0, 0);
+  return d.getTime();
+}
+
 function withTracker(fn) {
   const originalStorage = globalThis.localStorage;
   globalThis.localStorage = makeStorage();
@@ -42,7 +54,7 @@ function withTracker(fn) {
 const IDLE_MS = 5 * 60 * 1000;
 
 test('idle boundary ends the session and caps activeSeconds at the idle limit', () => withTracker(() => {
-  const clock = makeClock(Date.now());
+  const clock = makeClock(midMorning());
   let visible = true;
   const records = [];
   const tracker = createSessionTracker({
@@ -64,7 +76,7 @@ test('idle boundary ends the session and caps activeSeconds at the idle limit', 
 }));
 
 test('signal() after idle timeout starts a second session with a new ID', () => withTracker(() => {
-  const clock = makeClock(Date.now());
+  const clock = makeClock(midMorning());
   const records = [];
   const tracker = createSessionTracker({
     kind: 'reading-session', itemType: 'document', storageKey: 'test.resume',
@@ -84,7 +96,7 @@ test('signal() after idle timeout starts a second session with a new ID', () => 
 }));
 
 test('background then resume produces two sessions, not one merged range', () => withTracker(() => {
-  const clock = makeClock(Date.now());
+  const clock = makeClock(midMorning());
   let visible = true;
   const records = [];
   const tracker = createSessionTracker({
@@ -108,7 +120,7 @@ test('background then resume produces two sessions, not one merged range', () =>
 }));
 
 test('switching items ends the previous session', () => withTracker(() => {
-  const clock = makeClock(Date.now());
+  const clock = makeClock(midMorning());
   const records = [];
   const tracker = createSessionTracker({
     kind: 'reading-session', itemType: 'document', storageKey: 'test.switch',
@@ -125,7 +137,7 @@ test('switching items ends the previous session', () => withTracker(() => {
 }));
 
 test('a session with zero activeSeconds is never recorded', () => withTracker(() => {
-  const clock = makeClock(Date.now());
+  const clock = makeClock(midMorning());
   const records = [];
   const tracker = createSessionTracker({
     kind: 'reading-session', itemType: 'document', storageKey: 'test.zero',
@@ -138,7 +150,7 @@ test('a session with zero activeSeconds is never recorded', () => withTracker(()
 }));
 
 test('clearItem() prevents signal() from resuming after idle, stop() alone does not', () => withTracker(() => {
-  const clock = makeClock(Date.now());
+  const clock = makeClock(midMorning());
   const records = [];
   const tracker = createSessionTracker({
     kind: 'reading-session', itemType: 'document', storageKey: 'test.clear',

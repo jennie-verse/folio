@@ -19,6 +19,15 @@ async function loadTextIndex() {
   return map;
 }
 
+/** The documents a folder tab covers: 'unsorted', a folder id, or null for all.
+    Shared by the list filter and the "Showing N of M" line, so the two can
+    never disagree about what "M" is. */
+export function inFolder(docs, folderFilter) {
+  if (folderFilter === 'unsorted') return docs.filter((doc) => !doc.folderId);
+  if (folderFilter) return docs.filter((doc) => doc.folderId === folderFilter);
+  return docs.slice();
+}
+
 export async function filterDocuments(docs, { query, stateFilter, typeFilter, tagFilter, folderFilter, retentionDays }) {
   let list = docs.slice();
 
@@ -32,8 +41,7 @@ export async function filterDocuments(docs, { query, stateFilter, typeFilter, ta
     list = list.filter((doc) => tagFilter.every((tag) => (doc.tags || []).includes(tag)));
   }
 
-  if (folderFilter === 'unsorted') list = list.filter((doc) => !doc.folderId);
-  else if (folderFilter) list = list.filter((doc) => doc.folderId === folderFilter);
+  list = inFolder(list, folderFilter);
 
   if (stateFilter === 'pinned') list = list.filter((doc) => doc.pinned);
   else if (stateFilter === 'needs') list = list.filter((doc) => doc.released);

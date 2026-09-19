@@ -46,9 +46,17 @@ async function saveWithRoom(doc, blob) {
  * Import picked files.
  * @param {File[]} files
  * @param {object} handlers  kind → handler module (for extractText)
- * @returns {{added:number, reconnected:number, failures:Array}}
+ * @param {object} [options]
+ * @param {string|null} [options.folderId]    file the new documents into this folder
+ * @param {string} [options.folderName]       only used in the "Added …" message
+ * @param {string} [options.title]            title for a single file (typed-in text)
+ * @param {boolean} [options.pasted]          the file is typed text, not a picked file
+ * @param {boolean} [options.quiet]           caller announces "Added" itself
+ * @returns {{added:number, reconnected:number, released:number, failures:Array}}
  */
-export async function importFiles(files, handlers) {
+export async function importFiles(files, handlers, options = {}) {
+  const { folderId = null, folderName = '', pasted = false, quiet = false } = options;
+  const customTitle = files.length === 1 ? String(options.title || '').trim() : '';
   let added = 0;
   let reconnected = 0;
   let releasedTotal = 0;
@@ -95,11 +103,12 @@ export async function importFiles(files, handlers) {
         id,
         kind,
         fileName: file.name,
-        title: titleFrom(file.name),
+        title: customTitle || titleFrom(file.name),
         size: file.size,
         fileHash,
         tags: [],
         folder: '',
+        ...(folderId ? { folderId } : {}),
         addedAt: now,
         updatedAt: now,
         lastTouchedAt: now,
@@ -150,9 +159,9 @@ export async function importFiles(files, handlers) {
 
   search.invalidateTextIndex();
   if (releasedTotal) toast(`Storage is full — released ${releasedTotal} old ${releasedTotal === 1 ? 'copy' : 'copies'} and saved.`);
-  else if (added) toast(`Added ${added} document${added === 1 ? '' : 's'}.`);
-  if (reconnected) toast('Already in folio — reconnected instead.');
-  return { added, reconnected, failures };
+  else if (added && !quiet) toast(`Added ${added} document${added === 1 ? '' : 's'}${folderId && folderName ? ` to ${folderName}` : ''}.`);
+  if (reconnected) toast(pasted ? 'That exact text is already in folio.' : 'Already in folio — reconnected instead.');
+  return { added, reconnected, released: releasedTotal, failures };
 }
 
 /* ── drawing ───────────────────────────────────────────────────────────── */
@@ -183,7 +192,7 @@ function annotationBadgeText(count) {
 /** One list row. Tap opens, long press opens the row sheet.
     In selection mode (`selectMode: true`), tap toggles selection instead —
     used by "Export selected .md" (folio multi-export plan). */
-export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = false, selected = false, onToggleSelect, annotationCount, folderName }) {
+export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = false, selected = false, onToggleSelect, annotationCount, folderName, folderHue = 0 }) {
   const row = el('button', { class: keepClass(doc) + (selectMode && selected ? ' selected' : ''), type: 'button' });
   if (selectMode) {
     row.setAttribute('aria-pressed', String(selected));
@@ -198,7 +207,7 @@ export function documentRow(doc, { onOpen, onMenu, retentionDays, selectMode = f
   }
   row.appendChild(main);
 
-  if (folderName) row.appendChild(el('span', { class: 'badge folder', text: folderName, title: folderName }));
+  if (folderName) row.appendChild(el('span', { class: `badge folder hue-${folderHue}`, text: folderName, title: folderName }));
   if (doc.pinned) row.appendChild(el('span', { class: 'badge pin', text: 'Pinned' }));
   else if (doc.released) row.appendChild(el('span', { class: 'badge needs', text: 'Needs file' }));
   // The countdown is about a local copy, so a released document never shows it.
@@ -249,11 +258,27 @@ export function continueCard(doc, state, onOpen) {
   ]);
 }
 
-export function emptyState({ onImport }) {
+export function emptyState({ onImport, onCompose }) {
   return el('div', { class: 'empty' }, [
     el('h2', { text: 'No documents yet' }),
-    el('p', { text: 'Import files from Files or iCloud Drive. Pin the ones you open often — pinned documents always keep a local copy.' }),
-    el('button', { class: 'primary', type: 'button', text: 'Import files', onclick: onImport }),
+    el('p', { text: 'Import files from Files or iCloud Drive, or paste text and code straight in. Pin the ones you open often — pinned documents always keep a local copy.' }),
+    el('div', { class: 'actions' }, [
+      el('button', { class: 'primary', type: 'button', text: 'Import files', onclick: onImport }),
+      el('button', { type: 'button', text: 'Paste code', onclick: onCompose }),
+    ]),
+  ]);
+}
+
+/** A folder with nothing in it — the one place a new user is most likely to be
+    staring at a blank list, so it says how to fill it. */
+export function emptyFolder({ name, onImport, onCompose }) {
+  return el('div', { class: 'empty' }, [
+    el('h2', { class: 'title', text: `“${name}” is empty` }),
+    el('p', { text: 'Anything you import or paste while this folder is open is saved into it. You can also move documents here from a row’s menu.' }),
+    el('div', { class: 'actions' }, [
+      el('button', { class: 'primary', type: 'button', text: 'Import files', onclick: onImport }),
+      el('button', { type: 'button', text: 'Paste code', onclick: onCompose }),
+    ]),
   ]);
 }
 

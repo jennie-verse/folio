@@ -68,6 +68,9 @@ folio/
 │  ├─ version.js         빌드 번호 (APP_BUILD — sw.js 와 항상 같이 올립니다)
 │  ├─ store.js           IndexedDB 9개 저장소
 │  ├─ library.js         가져오기와 목록 그리기
+│  ├─ compose.js         글·코드를 붙여넣어 문서로 추가 (Paste code)
+│  ├─ folders.js         폴더 만들기·이름 바꾸기·지우기
+│  ├─ folder-color.js    폴더 색(파스텔 5색) 정하기
 │  ├─ detect.js          확장자 + 매직 바이트로 형식 판정
 │  ├─ package.js         ZIP 패키지 해제와 방어
 │  ├─ preview.js         Run·Read 샌드박스

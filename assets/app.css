@@ -21,6 +21,19 @@
   /* Format tag families — four, not seven, so one screen stays inside six colours. */
   --t-write:#CBE5B4; --t-page:#B9D8EE; --t-fixed:#E4D7C0; --t-media:#F8D2A8;
 
+  /* Folder hues — WebApp_House_Style 2-1 (rainbow extension), applied to folio
+     on 2026-09-18. Pink stays the brand; these five only tell folders apart
+     (folder tabs, the open-folder bar, the folder badge on a row). --fhN and
+     --fhN-tint are the table's Accent/Background pairs — orange, yellow,
+     green, sky, lilac. --fhN-edge is a darker same-hue border (≥3:1 on --bg).
+     Text on either fill is --text: ≥4.99:1. Selection is never colour alone —
+     the open tab is also bold with a 2px border. */
+  --fh0:#F8D2A8; --fh0-tint:#FCE4D4; --fh0-edge:#D47811;
+  --fh1:#F7E3A8; --fh1-tint:#FCF4DC; --fh1-edge:#B18910;
+  --fh2:#A8DCC6; --fh2-tint:#E4F4DC; --fh2-edge:#40A078;
+  --fh3:#B9D8EE; --fh3-tint:#E4F3F4; --fh3-edge:#4296D1;
+  --fh4:#B9A8E8; --fh4-tint:#EDE4FA; --fh4-edge:#6D49CF;
+
   --fs:12px;
   --fs-title:calc(var(--fs)*1.85);
   --fs-sec:calc(var(--fs)*1.17);
@@ -41,6 +54,13 @@ html[data-theme="dark"]{
   --bg:#1C171A;   --card:#241E22;
   --text:#EDE3E6; --text-2:#B0A0A7; --text-3:#8A7780; --line:#3A3238;
   --t-write:#50693F; --t-page:#3F5D74; --t-fixed:#6B5C42; --t-media:#7A5A34;
+  /* Folder hues, darkened until --text is ≥4.8:1 on the fill; the edge is the
+     light accent (≥8:1 on --bg). */
+  --fh0:#7E5B34; --fh0-tint:#403120; --fh0-edge:#F8D2A8;
+  --fh1:#71612F; --fh1-tint:#403820; --fh1-edge:#F7E3A8;
+  --fh2:#386C56; --fh2-tint:#243D32; --fh2-edge:#A8DCC6;
+  --fh3:#386687; --fh3-tint:#203340; --fh3-edge:#B9D8EE;
+  --fh4:#4E3989; --fh4-tint:#292040; --fh4-edge:#B9A8E8;
   /* --rose-ink on --rose is 2.3:1 in dark; --bg is 6.47:1 (design 2-3). */
   --btn-ink:var(--bg);
 }
@@ -124,6 +144,11 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
   padding-left:var(--safe-l);padding-right:var(--safe-r)}
 
+/* Library bottom bar: Import files and Paste code share the width; the gear
+   keeps its own 44px. min-width:0 lets a label wrap instead of overflowing at
+   the 17px text step or in the 320px iPad rail. */
+#libraryBottombar > .grow{flex:1 1 0;min-width:0;padding:0 8px}
+
 /* ── Library ───────────────────────────────────────────────────────────── */
 
 .searchrow{display:flex;gap:8px;align-items:center;flex:1;min-width:0;width:auto}
@@ -157,6 +182,35 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 }
 .chip::after{content:"";position:absolute;inset:-7px -3px}
 .chip[aria-pressed="true"]{background:var(--rose-tint);border-color:var(--rose);color:var(--text);font-weight:700}
+/* An action chip, not a filter: dashed edge, so it is not mistaken for a tab. */
+.chip.add{border-style:dashed;color:var(--text)}
+
+/* Folder hues (tokens at the top of this file). One class per hue sets the
+   three local variables the folder tab, folder bar and row badge read. */
+.hue-0{--h:var(--fh0);--h-tint:var(--fh0-tint);--h-edge:var(--fh0-edge)}
+.hue-1{--h:var(--fh1);--h-tint:var(--fh1-tint);--h-edge:var(--fh1-edge)}
+.hue-2{--h:var(--fh2);--h-tint:var(--fh2-tint);--h-edge:var(--fh2-edge)}
+.hue-3{--h:var(--fh3);--h-tint:var(--fh3-tint);--h-edge:var(--fh3-edge)}
+.hue-4{--h:var(--fh4);--h-tint:var(--fh4-tint);--h-edge:var(--fh4-edge)}
+.chip.ftab{background:var(--h-tint);border-color:var(--h);color:var(--text)}
+.chip.ftab[aria-pressed="true"]{background:var(--h);border-color:var(--h-edge);box-shadow:inset 0 0 0 1px var(--h-edge);color:var(--text);font-weight:700}
+.chip .chip-label{display:block;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip .chip-count{margin-left:.35em}
+
+/* The open folder: its name, and Rename / Delete right where you are looking. */
+/* Vertical padding here is load-bearing: a chip is 32px tall with an invisible
+   44px tap area (7px each side). Two chip rows need ≥14px between their visible
+   edges, or their tap areas overlap and the row above loses part of its own. */
+.folderbar{display:flex;align-items:center;gap:6px;padding:6px 12px}
+.folderbar .fb-name{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;font-weight:700}
+.folderbar .fb-dot{flex:0 0 auto;width:12px;height:12px;border-radius:50%;background:var(--h);border:2px solid var(--h-edge)}
+.folderbar .fb-label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.folderbar .chip{flex:0 0 auto}
+.folderbar .chip.danger{color:var(--text)}
+
+/* "Showing 3 of 12" — only while a filter is narrowing the list. */
+.listinfo{display:flex;align-items:center;gap:8px;padding:6px 12px 8px}
+.listinfo > span{flex:1;min-width:0}
 
 .doclist{list-style:none;margin:0;padding:0 12px 12px}
 .docrow{
@@ -208,6 +262,7 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .empty{padding:24px 16px;text-align:center;color:var(--text-2)}
 .empty h2{font-size:var(--fs-sec);color:var(--text);margin:0 0 6px}
 .empty p{margin:0 0 12px}
+.empty .actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
 
 /* ── Viewer ────────────────────────────────────────────────────────────── */
 
@@ -396,7 +451,8 @@ mark{background:var(--warn);color:var(--status-ink)}
 .annotation-color-dot[data-color="quote"]{background:#E4D7C0}
 .badge.annot{background:var(--rose-tint);color:var(--rose-ink);border-radius:5px;padding:0 5px}
 .badge.folder{
-  background:var(--t-fixed);color:var(--text);border-radius:5px;padding:0 5px;
+  background:var(--h-tint,var(--t-fixed));color:var(--text);border:1px solid var(--h,transparent);
+  border-radius:5px;padding:0 5px;
   max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .dr-tags{font-size:var(--fs-small);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -471,6 +527,21 @@ table.csv tbody th{position:sticky;left:0;z-index:1;background:var(--rose-tint);
 .sheet .row > *{flex:1 1 auto}
 .sheet menu{list-style:none;margin:0;padding:0}
 .sheet menu button{width:100%;text-align:left;margin-bottom:6px}
+
+/* "Add from text" — type or paste a document. Its actions sit above the
+   fields so the keyboard cannot cover them. The text box is 16px like every
+   input (iOS zoom guard) and monospace, since it is usually code. */
+.compose-title{margin:0 0 8px}
+.compose-types{display:flex;flex-wrap:wrap;gap:14px 6px;margin:0 0 8px}
+.compose-field{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+.compose-field > span{flex:0 0 auto}
+.compose-field > select{flex:1 1 auto;min-width:0}
+.compose-text{
+  display:block;margin:0 0 6px;padding:10px 12px;min-height:150px;max-height:34vh;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.5;
+  resize:vertical;tab-size:2;
+}
+.compose-info{margin:0 0 8px}
 @keyframes rise{from{transform:translateY(12px);opacity:.6}to{transform:none;opacity:1}}
 
 #toasts{position:fixed;left:0;right:0;bottom:calc(var(--safe-b) + 12px);

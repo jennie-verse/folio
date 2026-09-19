@@ -18,6 +18,7 @@ import { base64, fromBase64, validateManifest } from './package.js';
 import { formatBytes, todayStamp } from './ui.js';
 import { APP_BUILD } from './version.js';
 import * as settings from './settings.js';
+import { isHueIndex } from './folder-color.js';
 import { exportActivityLedger, replaceActivityLedger, validateActivityLedger, exportSessionLedger, replaceSessionLedger, validateSessionLedger } from './journal.js';
 
 export const FORMAT = 'folio-backup';
@@ -209,7 +210,12 @@ export function validateAndNormalize(parsed) {
     folderIds.add(id);
     const name = String(row.name || '').trim().slice(0, 60);
     if (!name) throw new Error(`Invalid folder name for ${id}.`);
-    return { id, name, order: Number.isFinite(row.order) ? row.order : index, createdAt: Number(row.createdAt) || now };
+    // `hue` is optional: a backup made before folders had colours restores
+    // fine, and a folder without one gets a stable hue from its id.
+    return {
+      id, name, order: Number.isFinite(row.order) ? row.order : index, createdAt: Number(row.createdAt) || now,
+      ...(isHueIndex(row.hue) ? { hue: row.hue } : {}),
+    };
   }) : [];
   return {
     documents, documentFiles, packageAssets, docText, readingStates, annotations, bookmarks,

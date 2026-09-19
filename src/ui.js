@@ -93,7 +93,10 @@ function openOverlay(build, { onDismiss } = {}) {
     panel.setAttribute('aria-label', 'Dialog');
   }
   host.appendChild(overlay);
-  const first = panel.querySelector('button, input, select, textarea');
+  // A sheet can name its own starting field (data-autofocus); otherwise the
+  // first control gets focus, as before. Focus happens here, inside the tap
+  // that opened the sheet, so iOS is willing to raise the keyboard.
+  const first = panel.querySelector('[data-autofocus]') || panel.querySelector('button, input, select, textarea');
   if (first) first.focus();
   return close;
 }

@@ -15,6 +15,8 @@ import * as journal from './journal.js';
 import * as annotation from './annotation.js';
 import * as pkg from './package.js';
 import * as folders from './folders.js';
+import * as compose from './compose.js';
+import { hueIndexOf } from './folder-color.js';
 import { TAG_OF, KINDS, detect } from './detect.js';
 import { APP_BUILD } from './version.js';
 import { createSessionTracker } from './activity-session.js';
@@ -57,6 +59,7 @@ const State = {
   selectMode: false,
   selectedIds: new Set(),
   visibleDocs: [],     // what the library currently shows, in order (select-all, Arrange)
+  revealedTab: undefined, // the folder filter whose tab was last scrolled into view
   annotationColorFilter: null,
   viewerTools: [],
 };
@@ -226,12 +229,15 @@ async function refreshLibrary() {
   }
   const annotationCounts = await store.annotationCounts();
   if (ticket !== refreshTicket) return;
-  const folderNames = new Map(State.folders.map((folder) => [folder.id, folder.name]));
+  const folderById = new Map(State.folders.map((folder) => [folder.id, folder]));
 
   paintFolderTabs();
+  paintFolderBar();
   paintTagFilterRow();
+  paintListInfo(ordered.length, search.inFolder(State.docs, folderFilter).length, query);
 
   ordered.forEach((doc) => {
+    const folder = doc.folderId ? folderById.get(doc.folderId) : null;
     list.appendChild(el('li', {}, [library.documentRow(doc, {
       retentionDays: days,
       onOpen: openDocument,
@@ -240,21 +246,29 @@ async function refreshLibrary() {
       selected: State.selectedIds.has(doc.id),
       onToggleSelect: toggleDocSelection,
       annotationCount: annotationCounts.get(doc.id),
-      folderName: doc.folderId ? folderNames.get(doc.folderId) : null,
+      folderName: folder ? folder.name : null,
+      folderHue: folder ? hueIndexOf(folder) : 0,
     })]));
   });
 
-  if (!State.docs.length) stateHost.appendChild(library.emptyState({ onImport: pickFiles }));
+  // An open folder gets its own "this folder is empty" hint even when the whole
+  // library is empty (a first folder made before any document exists).
+  if (!State.docs.length && !currentFolder()) stateHost.appendChild(library.emptyState({ onImport: pickFiles, onCompose: openCompose }));
   else if (!ordered.length && query.trim()) stateHost.appendChild(library.noMatches(query.trim()));
   else if (!ordered.length) {
-    stateHost.appendChild(library.nothingHere(() => {
-      settings.set('stateFilter', 'all');
-      settings.set('typeFilter', []);
-      settings.set('tagFilter', []);
-      settings.set('folderFilter', null);
-      paintChips();
-      refreshLibrary();
-    }));
+    const folder = currentFolder();
+    if (folder && !narrowingActive(query)) {
+      stateHost.appendChild(library.emptyFolder({ name: folder.name, onImport: pickFiles, onCompose: openCompose }));
+    } else {
+      stateHost.appendChild(library.nothingHere(() => {
+        settings.set('stateFilter', 'all');
+        settings.set('typeFilter', []);
+        settings.set('tagFilter', []);
+        settings.set('folderFilter', null);
+        paintChips();
+        refreshLibrary();
+      }));
+    }
   }
 
   if (!State.selectMode) await refreshContinue();
@@ -458,31 +472,166 @@ function paintChips() {
   });
 }
 
+/** The real folder the library is showing right now, or null when it shows
+    All or Unsorted. */
+function currentFolder() {
+  const id = settings.get('folderFilter');
+  return id && id !== 'unsorted' ? State.folders.find((folder) => folder.id === id) || null : null;
+}
+
+/** Status chips, type filter, tag filter or a search narrow the list without
+    any of them being obvious from the list itself. The folder tab is left out
+    on purpose: it already shows which folder is open. */
+function narrowingActive(query) {
+  return settings.get('stateFilter') !== 'all'
+    || settings.get('typeFilter').length > 0
+    || settings.get('tagFilter').length > 0
+    || String(query || '').trim() !== '';
+}
+
 /** Folder/tag browsing (folio home-redesign 2026-09-11): a folder tab row
     right under Continue, so folders and tags read as places to browse — like
     a file manager — rather than a filter buried in a menu sheet. Tapping a
     folder tab sets folderFilter exactly like openFoldersSheet's rows already
-    did; the trailing "+ Folders" tab still opens that sheet for create/
-    rename/delete, so this doesn't duplicate that logic. */
+    did.
+
+    2026-09-18: each folder wears one of five hues (folder-color.js) so tabs
+    and the folder badge on a row can be told apart at a glance, and the
+    trailing tab now says what it does — "+ New folder" — instead of
+    "+ Folders", which read as an add button while actually opening the manage
+    sheet where Rename/Delete were hidden. Rename and Delete now sit in the
+    bar under the tabs (paintFolderBar) once a folder is open; the full list
+    stays under "⋯ → Folders". */
 function paintFolderTabs() {
   const host = $('#folderTabs');
   clear(host);
   const current = settings.get('folderFilter');
   const counts = folders.folderDocCounts(State.docs);
 
-  const tab = (id, label, count) => el('button', {
-    class: 'chip', type: 'button', 'aria-pressed': String(current === id),
-    text: `${label} (${count || 0})`,
-    onclick: () => { settings.set('folderFilter', id); refreshLibrary(); },
-  });
+  // A folder tab keeps its name and count in separate spans so a very long
+  // name can be ellipsised without clipping the chip itself — the chip's
+  // invisible 44px tap area is a child of it and overflow:hidden would cut it.
+  const tab = (id, label, count, folder) => {
+    const total = count || 0;
+    const props = {
+      class: folder ? `chip ftab hue-${hueIndexOf(folder)}` : 'chip', type: 'button', 'aria-pressed': String(current === id),
+      onclick: () => { settings.set('folderFilter', id); refreshLibrary(); },
+    };
+    if (!folder) return el('button', { ...props, text: `${label} (${total})` });
+    return el('button', { ...props, title: label, 'aria-label': `${label}, ${total} document${total === 1 ? '' : 's'}` }, [
+      el('span', { class: 'chip-label', text: label }),
+      el('span', { class: 'chip-count', text: `(${total})` }),
+    ]);
+  };
 
   host.appendChild(tab(null, 'All', State.docs.length));
   host.appendChild(tab('unsorted', 'Unsorted', counts.get(null) || 0));
-  State.folders.forEach((folder) => host.appendChild(tab(folder.id, folder.name, counts.get(folder.id) || 0)));
+  State.folders.forEach((folder) => host.appendChild(tab(folder.id, folder.name, counts.get(folder.id) || 0, folder)));
   host.appendChild(el('button', {
-    class: 'chip', type: 'button', text: '+ Folders', 'aria-label': 'Manage folders',
-    onclick: () => openFoldersSheet(),
+    class: 'chip add', type: 'button', text: '+ New folder',
+    onclick: () => createFolderFlow(),
   }));
+
+  // With many folders the open tab can sit off-screen in the row. Bring it into
+  // view — but only when the open folder has just changed, so a later refresh
+  // (a search, a pin) does not yank the row back while the person is scrolling
+  // it. The row is moved by hand: scrollIntoView would also scroll the whole
+  // library list back to the top.
+  if (State.revealedTab !== current) {
+    State.revealedTab = current;
+    const open = host.querySelector('[aria-pressed="true"]');
+    if (open) {
+      const hostBox = host.getBoundingClientRect();
+      const box = open.getBoundingClientRect();
+      if (box.left < hostBox.left) host.scrollLeft += box.left - hostBox.left - 12;
+      else if (box.right > hostBox.right) host.scrollLeft += box.right - hostBox.right + 12;
+    }
+  }
+}
+
+/** Shown only while a real folder is open: its name and, right there, Rename
+    and Delete. */
+function paintFolderBar() {
+  const host = $('#folderBar');
+  clear(host);
+  const folder = currentFolder();
+  host.classList.toggle('hidden', !folder);
+  if (!folder) return;
+  host.className = `folderbar hue-${hueIndexOf(folder)}`;
+  host.appendChild(el('span', { class: 'fb-name' }, [
+    el('i', { class: 'fb-dot', 'aria-hidden': 'true' }),
+    el('span', { class: 'fb-label', text: folder.name, title: folder.name }),
+  ]));
+  host.appendChild(el('button', {
+    class: 'chip', type: 'button', text: 'Rename', 'aria-label': `Rename folder ${folder.name}`,
+    onclick: () => renameFolderFlow(folder),
+  }));
+  host.appendChild(el('button', {
+    class: 'chip danger', type: 'button', text: 'Delete', 'aria-label': `Delete folder ${folder.name}`,
+    onclick: () => deleteFolderFlow(folder),
+  }));
+}
+
+/** "Showing 3 of 12" with a way out, whenever a filter is quietly narrowing
+    the list. */
+function paintListInfo(shown, inScope, query) {
+  const host = $('#listInfo');
+  const active = State.docs.length > 0 && narrowingActive(query);
+  host.classList.toggle('hidden', !active);
+  if (!active) return;
+  $('#listInfoText').textContent = `Showing ${shown} of ${inScope}`;
+}
+
+function clearNarrowingFilters() {
+  settings.set('stateFilter', 'all');
+  settings.set('typeFilter', []);
+  settings.set('tagFilter', []);
+  $('#q').value = '';
+  paintChips();
+  refreshLibrary();
+}
+
+/* ── folder actions — shared by the folder bar and the Folders sheet ───── */
+
+/** Asks for a name, creates the folder and opens it, so the folder bar and the
+    "this folder is empty" hint appear straight away. Resolves with the new
+    folder, or null if cancelled or refused. */
+async function createFolderFlow({ select = true } = {}) {
+  const name = await promptText('New folder', 'Folder name', '');
+  if (name === null) return null;
+  let row;
+  try { row = await folders.createFolder(name); } catch (error) { toast(error.message || 'Could not create the folder.'); return null; }
+  if (select) settings.set('folderFilter', row.id);
+  await refreshLibrary();
+  return row;
+}
+
+async function renameFolderFlow(folder) {
+  const next = await promptText('Rename folder', 'Folder name', folder.name);
+  if (next === null) return false;
+  try { await folders.renameFolder(folder.id, next); } catch (error) { toast(error.message || 'Could not rename the folder.'); return false; }
+  await refreshLibrary();
+  toast('Folder renamed.');
+  syncRunner.schedulePush();
+  return true;
+}
+
+async function deleteFolderFlow(folder) {
+  const count = State.docs.filter((doc) => doc.folderId === folder.id).length;
+  const ok = await confirmDialog({
+    title: 'Delete this folder?',
+    message: count
+      ? `"${folder.name}" will be removed. Its ${count} document${count === 1 ? '' : 's'} move${count === 1 ? 's' : ''} to Unsorted — nothing is deleted.`
+      : `"${folder.name}" is empty and will be removed.`,
+    confirmLabel: 'Delete', danger: true,
+  });
+  if (!ok) return false;
+  await folders.deleteFolder(folder.id);
+  if (settings.get('folderFilter') === folder.id) settings.set('folderFilter', null);
+  await refreshLibrary();
+  toast(count ? `Folder deleted. ${count} document${count === 1 ? '' : 's'} moved to Unsorted.` : 'Folder deleted.');
+  syncRunner.schedulePush();
+  return true;
 }
 
 /** Active tag filters shown as removable chips, right under the folder tabs —
@@ -550,10 +699,18 @@ function pickOneFile() {
   });
 }
 
-async function handleImport(files) {
-  if (!files || !files.length) return;
+/** Files picked, dropped or typed in. While a real folder is open they are
+    filed into it — otherwise an import made from inside a folder would land in
+    Unsorted and vanish from the list the person is looking at. */
+async function handleImport(files, options = {}) {
+  if (!files || !files.length) return { result: null, added: [] };
   const beforeIds = new Set((await store.listDocuments()).map((doc) => doc.id));
-  const result = await library.importFiles(Array.from(files), HANDLERS);
+  const folder = options.folderId === undefined ? currentFolder() : State.folders.find((item) => item.id === options.folderId) || null;
+  const result = await library.importFiles(Array.from(files), HANDLERS, {
+    ...options,
+    folderId: folder ? folder.id : null,
+    folderName: folder ? folder.name : '',
+  });
   if (result.failures.length) {
     customSheet((panel) => {
       panel.appendChild(el('h2', { text: `${result.failures.length} file${result.failures.length === 1 ? '' : 's'} could not be added` }));
@@ -561,10 +718,38 @@ async function handleImport(files) {
     });
   }
   await refreshLibrary();
-  for (const doc of State.docs) {
-    if (!beforeIds.has(doc.id)) journal.recordActivity(doc, 'added', { at: Number(doc.addedAt) }).catch(() => {});
-  }
+  const added = State.docs.filter((doc) => !beforeIds.has(doc.id));
+  for (const doc of added) journal.recordActivity(doc, 'added', { at: Number(doc.addedAt) }).catch(() => {});
   syncRunner.schedulePush();
+  return { result, added };
+}
+
+/* ── add from text (paste / type) ─────────────────────────────────────── */
+
+function openCompose() {
+  const folder = currentFolder();
+  compose.openComposeSheet({
+    folders: State.folders,
+    folderId: folder ? folder.id : '',
+    onSave: saveComposed,
+  });
+}
+
+/** Resolves true once the text is in the library (or already was), so the
+    sheet can drop its draft; false keeps the draft for another try. */
+async function saveComposed({ title, kind, text, folderId }) {
+  let built;
+  try { built = compose.buildFile({ title, kind, text }); } catch { toast('Could not create that document.'); return false; }
+  // `folderId: null` means the person picked Unsorted on purpose — do not let
+  // handleImport fall back to whichever folder happens to be open.
+  const { result, added } = await handleImport([built.file], { folderId, title: built.title, pasted: true, quiet: true });
+  if (added.length) {
+    const doc = added[0];
+    const folder = State.folders.find((item) => item.id === doc.folderId);
+    toast(`Added “${doc.title}”${folder ? ` to ${folder.name}` : ''}.`, { actionLabel: 'Open', onAction: () => openDocument(doc) });
+    return true;
+  }
+  return Boolean(result && result.reconnected && !result.failures.length);
 }
 
 /* ── row actions ───────────────────────────────────────────────────────── */
@@ -1719,35 +1904,24 @@ function openFoldersSheet() {
         }),
       ]);
       if (id && id !== 'unsorted') {
+        const folder = State.folders.find((item) => item.id === id);
+        // The flows refresh State.folders from IndexedDB before this sheet is
+        // reopened — reopening first re-read the stale State.folders that was
+        // current when the sheet first drew, so a rename/create/delete looked
+        // like it silently did nothing until some unrelated refresh caught up.
         row.appendChild(el('button', {
           type: 'button', text: 'Rename', 'aria-label': `Rename ${label}`,
           onclick: async () => {
-            const next = await promptText('Rename folder', 'Folder name', label);
-            if (next === null) return;
-            try { await folders.renameFolder(id, next); } catch (error) { toast(error.message); return; }
+            if (!folder || !await renameFolderFlow(folder)) return;
             close();
-            // Refresh (which repopulates State.folders from IndexedDB) BEFORE
-            // reopening the sheet — reopening first re-read the still-stale
-            // State.folders that was current when this sheet first drew,
-            // so a rename/create/delete looked like it silently did nothing
-            // until some unrelated refresh happened to catch up.
-            await refreshLibrary();
             openFoldersSheet();
           },
         }));
         row.appendChild(el('button', {
           type: 'button', text: 'Delete', 'aria-label': `Delete ${label}`,
           onclick: async () => {
-            const ok = await confirmDialog({
-              title: 'Delete this folder?',
-              message: `"${label}" will be removed. Its documents move to Unsorted — nothing is deleted.`,
-              confirmLabel: 'Delete', danger: true,
-            });
-            if (!ok) return;
-            await folders.deleteFolder(id);
-            if (current === id) settings.set('folderFilter', null);
+            if (!folder || !await deleteFolderFlow(folder)) return;
             close();
-            await refreshLibrary();
             openFoldersSheet();
           },
         }));
@@ -1763,11 +1937,10 @@ function openFoldersSheet() {
     panel.appendChild(el('button', {
       type: 'button', text: '+ New folder',
       onclick: async () => {
-        const name = await promptText('New folder', 'Folder name', '');
-        if (name === null) return;
-        try { await folders.createFolder(name); } catch (error) { toast(error.message); return; }
+        // Stays in the manager: this sheet is for arranging several folders,
+        // so the new one is created without switching the library to it.
+        if (!await createFolderFlow({ select: false })) return;
         close();
-        await refreshLibrary();
         openFoldersSheet();
       },
     }));
@@ -2325,6 +2498,8 @@ function wire() {
   });
 
   $('#btnImport').addEventListener('click', pickFiles);
+  $('#btnCompose').addEventListener('click', openCompose);
+  $('#btnClearFilters').addEventListener('click', clearNarrowingFilters);
   $('#filePicker').addEventListener('change', (event) => {
     const files = Array.from(event.target.files || []);
     event.target.value = '';

@@ -6,6 +6,14 @@
    ask to delete" rule the rest of folio follows for retention and sync. */
 
 import { db, newId } from './store.js';
+import { nextHueIndex } from './folder-color.js';
+
+/** One past the highest existing order. `folders.length` is not enough: after a
+    folder is deleted it repeats a value still in use, and the new folder then
+    sorts into the middle of the tab row instead of the end. */
+export function nextOrder(folders) {
+  return (folders || []).reduce((max, folder) => (Number.isFinite(folder.order) ? Math.max(max, folder.order) : max), -1) + 1;
+}
 
 export async function listFolders() {
   const rows = await db.folders.toArray();
@@ -19,7 +27,7 @@ export async function createFolder(name) {
   if (folders.some((folder) => folder.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase())) {
     throw new Error('That folder already exists.');
   }
-  const row = { id: newId(), name: trimmed, order: folders.length, createdAt: Date.now() };
+  const row = { id: newId(), name: trimmed, order: nextOrder(folders), createdAt: Date.now(), hue: nextHueIndex(folders) };
   await db.folders.put(row);
   return row;
 }
@@ -33,7 +41,7 @@ export async function ensureFolder(name) {
   const folders = await listFolders();
   const existing = folders.find((folder) => folder.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase());
   if (existing) return existing;
-  const row = { id: newId(), name: trimmed, order: folders.length, createdAt: Date.now() };
+  const row = { id: newId(), name: trimmed, order: nextOrder(folders), createdAt: Date.now(), hue: nextHueIndex(folders) };
   await db.folders.put(row);
   return row;
 }
@@ -45,19 +53,32 @@ export async function renameFolder(id, name) {
   if (folders.some((folder) => folder.id !== id && folder.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase())) {
     throw new Error('That folder already exists.');
   }
-  const folder = await db.folders.get(id);
-  if (!folder) return null;
-  const next = { ...folder, name: trimmed };
-  await db.folders.put(next);
-  return next;
+  return db.transaction('rw', db.folders, db.documents, async () => {
+    const folder = await db.folders.get(id);
+    if (!folder) return null;
+    if (folder.name === trimmed) return folder;
+    const next = { ...folder, name: trimmed };
+    await db.folders.put(next);
+    // Sync identifies a document's folder by NAME and applies a remote change
+    // only when its updatedAt is newer than the local one (app.js
+    // applyRemoteFolderTags). Without a fresh stamp on the folder's documents,
+    // another device would keep showing the old name indefinitely.
+    const docs = await db.documents.where('folderId').equals(id).toArray();
+    const now = Date.now();
+    for (const doc of docs) await db.documents.put({ ...doc, updatedAt: now });
+    return next;
+  });
 }
 
-/** Documents in this folder move to Unsorted; never deleted. */
+/** Documents in this folder move to Unsorted; never deleted. Resolves with
+    how many visible documents moved, for the confirmation message. */
 export async function deleteFolder(id) {
-  await db.transaction('rw', db.folders, db.documents, async () => {
+  return db.transaction('rw', db.folders, db.documents, async () => {
     const docs = await db.documents.where('folderId').equals(id).toArray();
-    for (const doc of docs) await db.documents.put({ ...doc, folderId: null, updatedAt: Date.now() });
+    const now = Date.now();
+    for (const doc of docs) await db.documents.put({ ...doc, folderId: null, updatedAt: now });
     await db.folders.delete(id);
+    return docs.filter((doc) => !doc.deletedAt).length;
   });
 }
 
