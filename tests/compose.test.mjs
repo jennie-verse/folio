@@ -89,6 +89,50 @@ test('deriveTitle reads YAML front matter, and never shows the --- fence as a ti
   assert.equal(deriveTitle('markdown', '---\nnot closed\nfirst'), 'not closed', 'an unclosed fence is not front matter');
 });
 
+test('a markdown heading ignores code fences, keeps a trailing # that is part of the word, and drops a real closing run', () => {
+  assert.equal(deriveTitle('markdown', '```bash\n# install deps\nnpm i\n```\n\n# Real title\n'), 'Real title', 'a shell comment inside a fence is not the title');
+  assert.equal(deriveTitle('markdown', '~~~\n# hidden\n~~~\n## After\n'), 'After');
+  assert.equal(deriveTitle('markdown', '# Learning C#\n'), 'Learning C#');
+  assert.equal(deriveTitle('markdown', '## Closed heading ##  \n'), 'Closed heading');
+  assert.equal(deriveTitle('markdown', '# Title #hashtag\n'), 'Title #hashtag');
+  assert.equal(deriveTitle('markdown', 'intro\r\n\r\n### CRLF heading\r\n'), 'CRLF heading', 'Windows line endings work');
+  assert.equal(deriveTitle('markdown', '# \n\n## Second\n'), 'Second', 'an empty heading is skipped, not returned');
+  assert.equal(deriveTitle('markdown', '```\nunclosed fence\n# inside\n'), 'unclosed fence', 'an unclosed fence swallows the rest');
+});
+
+test('title derivation cannot be stalled by long or hostile input', () => {
+  // Regression: "# a" + 30,000 spaces + "b" made the heading regex backtrack for
+  // minutes and froze the Add from text sheet. Each case must now finish fast.
+  const started = performance.now();
+  const cases = [
+    ['markdown', '# a' + ' '.repeat(30000) + 'b'],
+    ['markdown', '# ' + '#'.repeat(30000) + 'x'],
+    ['markdown', '---\ntitle: ' + ' '.repeat(30000) + 'x\n---\n'],
+    ['markdown', 'x'.repeat(200000) + '\n# late heading'],
+    ['html', '<'.repeat(200000)],
+    ['html', '<script '.repeat(20000)],
+    ['html', '<title>'.repeat(20000)],
+    ['html', '<p>' + ' '.repeat(50000) + '</p>'],
+    ['text', '\n'.repeat(500000) + 'late'],
+    ['csv', ','.repeat(500000)],
+  ];
+  for (const [kind, text] of cases) {
+    const one = performance.now();
+    const title = deriveTitle(kind, text);
+    assert.equal(typeof title, 'string');
+    assert.ok(title.length > 0 && Array.from(title).length <= 80);
+    assert.ok(performance.now() - one < 1500, `${kind} case took ${Math.round(performance.now() - one)} ms`);
+  }
+  assert.ok(performance.now() - started < 6000, 'all hostile cases together stay well under the stall threshold');
+});
+
+test('large ordinary documents still get their title quickly', () => {
+  const page = '<html><head><title>Big page</title></head><body>' + '<p>hello world</p>'.repeat(200000) + '</body></html>';
+  assert.equal(deriveTitle('html', page), 'Big page');
+  assert.equal(deriveTitle('markdown', '# Top heading\n' + 'plain line\n'.repeat(300000)), 'Top heading');
+  assert.equal(deriveTitle('text', 'first line\n' + 'more\n'.repeat(300000)), 'first line');
+});
+
 test('deriveTitle decodes entities once and clips on code points, not UTF-16 halves', () => {
   assert.equal(deriveTitle('html', '<title>Tom &amp; Jerry</title>'), 'Tom & Jerry');
   assert.equal(deriveTitle('html', '<title>&amp;lt;b&amp;gt;</title>'), '&lt;b&gt;', 'a second decode would turn this into <b>');

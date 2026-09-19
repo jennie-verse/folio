@@ -81,7 +81,17 @@ function openOverlay(build, { onDismiss } = {}) {
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
-  overlay.addEventListener('click', (event) => { if (event.target === overlay) dismiss(); });
+  // A drag that starts inside the sheet (selecting text in a box) and ends on
+  // the dimmed backdrop still produces a "click" on the overlay — the closest
+  // common ancestor of the two ends — and used to close the sheet. Only a press
+  // that BEGAN on the backdrop dismisses it.
+  let pressedBackdrop = false;
+  overlay.addEventListener('pointerdown', (event) => { pressedBackdrop = event.target === overlay; });
+  overlay.addEventListener('click', (event) => {
+    const dismissing = event.target === overlay && pressedBackdrop;
+    pressedBackdrop = false;
+    if (dismissing) dismiss();
+  });
   document.addEventListener('keydown', onKey, true);
 
   build(panel, close);

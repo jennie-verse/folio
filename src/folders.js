@@ -8,6 +8,16 @@
 import { db, newId } from './store.js';
 import { nextHueIndex } from './folder-color.js';
 
+/** "All" and "Unsorted" are the built-in tabs (and "All folders" a row in the
+    manager sheet). A folder with one of those names would show two identical
+    tabs and be impossible to tell apart. Checked when a person names a folder;
+    ensureFolder (sync) never refuses, since it only adopts names another device
+    already made. */
+const RESERVED_NAMES = new Set(['all', 'all folders', 'unsorted']);
+function assertNotReserved(name) {
+  if (RESERVED_NAMES.has(name.toLocaleLowerCase())) throw new Error('Pick another name — All and Unsorted are built-in tabs.');
+}
+
 /** One past the highest existing order. `folders.length` is not enough: after a
     folder is deleted it repeats a value still in use, and the new folder then
     sorts into the middle of the tab row instead of the end. */
@@ -23,6 +33,7 @@ export async function listFolders() {
 export async function createFolder(name) {
   const trimmed = String(name || '').trim().slice(0, 60);
   if (!trimmed) throw new Error('Enter a folder name.');
+  assertNotReserved(trimmed);
   const folders = await listFolders();
   if (folders.some((folder) => folder.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase())) {
     throw new Error('That folder already exists.');
@@ -49,6 +60,7 @@ export async function ensureFolder(name) {
 export async function renameFolder(id, name) {
   const trimmed = String(name || '').trim().slice(0, 60);
   if (!trimmed) throw new Error('Enter a folder name.');
+  assertNotReserved(trimmed);
   const folders = await listFolders();
   if (folders.some((folder) => folder.id !== id && folder.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase())) {
     throw new Error('That folder already exists.');

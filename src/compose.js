@@ -31,7 +31,20 @@ const clip = (text) => Array.from(String(text)).slice(0, MAX_TITLE).join('');
 // A line of only ASCII punctuation ("---", "#", "=====") is a marker, not a
 // title, so it is skipped. Anything else counts — an emoji-only line included.
 const MARKER_ONLY = /^[\s!-/:-@[-`{-~]+$/;
-const firstLine = (text) => String(text).split(/\r?\n/).map(squash).find((line) => line && !MARKER_ONLY.test(line)) || '';
+function firstLine(text) {
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = squash(raw);
+    if (line && !MARKER_ONLY.test(line)) return line;
+  }
+  return '';
+}
+
+// Only the start of a pasted document is ever read for a title. A title lives
+// in the first screenful, and everything below runs on this window, so a huge
+// or hostile paste cannot make the sheet stall.
+const SCAN_CHARS = 100000;
+// The fallback that strips tags to find visible text costs more per character.
+const FALLBACK_CHARS = 20000;
 
 // One pass, so "&amp;lt;" becomes "&lt;" and not "<".
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' };
@@ -62,17 +75,66 @@ export function rememberKind(previous, saved) {
   return saved === 'html' || !COMPOSE_TYPES.some((type) => type.kind === saved) ? previous : saved;
 }
 
+/** "## Title ##" -> "Title". A closing run of # counts only when a space or tab
+    precedes it, so "# C#" stays "C#". String work, not a regex: a pattern with
+    two adjacent optional runs backtracks catastrophically on long lines. */
+function stripClosingHashes(text) {
+  const trimmed = text.trimEnd();
+  let end = trimmed.length;
+  while (end > 0 && trimmed[end - 1] === '#') end -= 1;
+  if (end < trimmed.length && (end === 0 || trimmed[end - 1] === ' ' || trimmed[end - 1] === '\t')) return trimmed.slice(0, end).trimEnd();
+  return trimmed;
+}
+
+/** The first "# …" heading, skipping anything inside a fenced code block (a
+    shell comment in a ``` fence is not the title). */
+function firstHeading(source) {
+  let fence = '';
+  for (const line of source.split(/\r?\n/)) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (marker) {
+      if (!fence) fence = marker[1][0];
+      else if (marker[1][0] === fence) fence = '';
+      continue;
+    }
+    if (fence) continue;
+    const match = /^ {0,3}#{1,6}[ \t]+(.*)$/.exec(line);
+    if (!match) continue;
+    const text = squash(stripClosingHashes(match[1]).replace(/(\*\*|__|~~|`)/g, ''));
+    if (text) return text;
+  }
+  return '';
+}
+
+/** YAML front matter — `---` … `---` on the first lines — as its lines and the
+    text after it, or null. */
+function splitFrontMatter(source) {
+  if (!/^---[ \t]*\r?\n/.test(source)) return null;
+  const lines = source.split(/\r?\n/);
+  for (let i = 1; i < lines.length; i += 1) {
+    if (/^---[ \t]*$/.test(lines[i])) return { head: lines.slice(1, i), rest: lines.slice(i + 1).join('\n') };
+  }
+  return null;
+}
+
+function unquote(value) {
+  const text = squash(value);
+  const quote = text[0];
+  return (quote === '"' || quote === "'") && text.length > 1 && text[text.length - 1] === quote ? text.slice(1, -1) : text;
+}
+
 /** A title from the content, so the person does not have to type one:
     HTML <title> or first <h1>, Markdown's first heading, otherwise the first
     non-empty line. */
 export function deriveTitle(kind, text) {
-  const source = String(text || '').replace(/^\uFEFF/, '');
+  const source = String(text || '').slice(0, SCAN_CHARS).replace(/^\uFEFF/, '');
   let title = '';
   if (kind === 'html') {
     const match = /<title[^>]*>([\s\S]*?)<\/title\s*>/i.exec(source) || /<h1[^>]*>([\s\S]*?)<\/h1\s*>/i.exec(source);
     if (match) title = squash(decodeEntities(match[1].replace(/<[^>]*>/g, ' ')));
     if (!title) {
       const visible = source
+        .slice(0, FALLBACK_CHARS)
         .replace(/<(script|style)[\s\S]*?<\/\1\s*>/gi, ' ')
         .replace(/<!--[\s\S]*?-->/g, ' ')
         .replace(/<[^>]*>/g, '\n');
@@ -80,12 +142,11 @@ export function deriveTitle(kind, text) {
     }
   } else if (kind === 'markdown') {
     // Notes often open with YAML front matter; its `title:` beats a heading.
-    const front = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(source);
-    const named = front && /^title:[ \t]*["']?(.+?)["']?[ \t]*$/im.exec(front[1]);
-    const body = front ? source.slice(front[0].length) : source;
-    const heading = /^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/m.exec(body);
-    if (named) title = squash(named[1]);
-    else if (heading) title = squash(heading[1].replace(/(\*\*|__|~~|`)/g, ''));
+    const front = splitFrontMatter(source);
+    const body = front ? front.rest : source;
+    const named = front && front.head.map((line) => /^title:[ \t]*(.*)$/i.exec(line)).find(Boolean);
+    if (named) title = unquote(named[1]);
+    if (!title) title = firstHeading(body);
     if (!title && front) return clip(firstLine(body)) || 'Untitled';
   }
   if (!title) title = firstLine(source);
@@ -210,10 +271,13 @@ export function openComposeSheet({ folders, folderId = '', onSave }) {
       update();
     }
 
-    // A Korean IME sends `input` for every half-formed syllable; the type guess
-    // waits for the composition to commit.
-    textarea.addEventListener('input', (event) => { if (!event.isComposing) onText(); });
-    textarea.addEventListener('compositionend', onText);
+    // The box itself is the truth, so every `input` is read — composing or not.
+    // Skipping the ones flagged `isComposing` (as the search box rightly does)
+    // left the mirrored text a syllable behind: on iOS a tap on Add lands while
+    // a Korean syllable is still being composed, and the last characters were
+    // saved without it. Reading half-formed text is harmless here — it only
+    // moves the Add button and the HTML guess, and a syllable is never HTML.
+    textarea.addEventListener('input', onText);
     textarea.addEventListener('keydown', (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.isComposing && !addButton.disabled) {
         event.preventDefault();
@@ -251,6 +315,9 @@ export function openComposeSheet({ folders, folderId = '', onSave }) {
     });
 
     addButton.addEventListener('click', async () => {
+      // Read the fields again rather than trusting the mirror (see above).
+      values.text = textarea.value;
+      values.title = titleInput.value;
       if (!values.text.trim()) return;
       const submitted = { title: values.title, kind: values.kind, text: values.text, folderId: folderSelect.value || null };
       close();

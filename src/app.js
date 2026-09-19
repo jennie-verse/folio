@@ -593,6 +593,16 @@ function clearNarrowingFilters() {
 
 /* ── folder actions — shared by the folder bar and the Folders sheet ───── */
 
+/** These actions redraw the tab row and the folder bar, which removes the very
+    button that had focus — a keyboard or VoiceOver user would be dropped at the
+    top of the page. Put focus back on something that still exists. Skipped
+    when a sheet is open (the Folders manager reopens and takes focus itself). */
+function refocus(selector) {
+  if (document.querySelector('#overlayHost .sheet')) return;
+  const target = $(selector);
+  if (target) target.focus({ preventScroll: true });
+}
+
 /** Asks for a name, creates the folder and opens it, so the folder bar and the
     "this folder is empty" hint appear straight away. Resolves with the new
     folder, or null if cancelled or refused. */
@@ -603,6 +613,7 @@ async function createFolderFlow({ select = true } = {}) {
   try { row = await folders.createFolder(name); } catch (error) { toast(error.message || 'Could not create the folder.'); return null; }
   if (select) settings.set('folderFilter', row.id);
   await refreshLibrary();
+  if (select) refocus('#folderTabs [aria-pressed="true"]');
   return row;
 }
 
@@ -611,6 +622,7 @@ async function renameFolderFlow(folder) {
   if (next === null) return false;
   try { await folders.renameFolder(folder.id, next); } catch (error) { toast(error.message || 'Could not rename the folder.'); return false; }
   await refreshLibrary();
+  refocus('#folderBar .chip');
   toast('Folder renamed.');
   syncRunner.schedulePush();
   return true;
@@ -629,6 +641,7 @@ async function deleteFolderFlow(folder) {
   await folders.deleteFolder(folder.id);
   if (settings.get('folderFilter') === folder.id) settings.set('folderFilter', null);
   await refreshLibrary();
+  refocus('#folderTabs .chip');
   toast(count ? `Folder deleted. ${count} document${count === 1 ? '' : 's'} moved to Unsorted.` : 'Folder deleted.');
   syncRunner.schedulePush();
   return true;

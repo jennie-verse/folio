@@ -153,6 +153,19 @@ test('a new folder always sorts after the existing ones, even once earlier folde
   assert.equal(folders.nextOrder([{ order: undefined }, { order: 7 }]), 8, 'a folder without an order is ignored');
 });
 
+test('the built-in tab names cannot be used for a folder, but sync may still adopt one', async () => {
+  reset();
+  for (const name of ['All', 'all', ' UNSORTED ', 'Unsorted', 'All folders']) {
+    await assert.rejects(folders.createFolder(name), /built-in tabs/, `createFolder(${JSON.stringify(name)})`);
+  }
+  const work = await folders.createFolder('Work');
+  await assert.rejects(folders.renameFolder(work.id, 'Unsorted'), /built-in tabs/);
+  assert.equal((await folders.listFolders()).find((folder) => folder.id === work.id).name, 'Work', 'a refused rename changes nothing');
+  await folders.createFolder('Allies');                      // only an exact built-in name is reserved
+  await folders.createFolder('Unsorted stuff');
+  assert.equal((await folders.ensureFolder('Unsorted')).name, 'Unsorted', 'a name another device already made is adopted, never refused');
+});
+
 test('folderDocCounts counts Unsorted under null', () => {
   const counts = folders.folderDocCounts([{ folderId: 'x' }, { folderId: 'x' }, {}, { folderId: null }]);
   assert.equal(counts.get('x'), 2);

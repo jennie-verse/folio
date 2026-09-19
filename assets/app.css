@@ -175,12 +175,17 @@ input[type=range]{padding:0;min-height:var(--tap);accent-color:var(--rose)}
 .progress{height:4px;background:var(--line);border-radius:2px;overflow:hidden}
 .progress > i{display:block;height:100%;background:var(--rose);width:0}
 
-.chiprow{display:flex;gap:6px;padding:8px 12px;overflow-x:auto}
+.chiprow{display:flex;gap:6px;padding:8px 12px;overflow-x:auto;scrollbar-width:thin}
 .chip{
   position:relative;flex:0 0 auto;min-height:30px;padding:6px 12px;border-radius:999px;
   background:var(--card);border:1px solid var(--line);color:var(--text-2);white-space:nowrap;
 }
-.chip::after{content:"";position:absolute;inset:-7px -3px}
+/* The tap area is this ::after. Its inset is measured from the chip's PADDING
+   box, so the 1px border is not counted: -7px gave a 30px chip only 42px of tap
+   area at the 6/8/10px text steps (the 44px rule, house style 5장). -8px makes
+   it 44px at every step. Stacked chip rows stay ≥14px apart (visible edge to
+   visible edge), so neighbouring tap areas touch but never overlap. */
+.chip::after{content:"";position:absolute;inset:-8px -3px}
 .chip[aria-pressed="true"]{background:var(--rose-tint);border-color:var(--rose);color:var(--text);font-weight:700}
 /* An action chip, not a filter: dashed edge, so it is not mistaken for a tab. */
 .chip.add{border-style:dashed;color:var(--text)}
@@ -556,8 +561,10 @@ html[data-theme="dark"] .toast button{color:var(--rose)}
 
 /* ── responsive ────────────────────────────────────────────────────────── */
 
+/* One 720px column for the list AND the chip rows above it, so the tabs, the
+   open-folder bar and "Showing N of M" line up with the document rows. */
 @media (min-width:768px){
-  .scroll > .doclist,.continue{max-width:720px;margin-left:auto;margin-right:auto}
+  .scroll > .doclist,.continue,.scroll > .chiprow,.scroll > .folderbar,.scroll > .listinfo{max-width:720px;margin-left:auto;margin-right:auto}
 }
 /* iPad landscape — 320px library rail beside the viewer. */
 @media (min-width:1024px) and (orientation:landscape){
@@ -567,7 +574,7 @@ html[data-theme="dark"] .toast button{color:var(--rose)}
   #app.split #library,#app.split #viewer{display:flex}
   #app.split.library-collapsed #library{display:none}
   #app.split.library-collapsed #viewer{flex:1 1 100%}
-  #app.split .scroll > .doclist,#app.split .continue{max-width:none}
+  #app.split .scroll > .doclist,#app.split .continue,#app.split .scroll > .chiprow,#app.split .scroll > .folderbar,#app.split .scroll > .listinfo{max-width:none}
 }
 
 @media (prefers-reduced-motion:reduce){
