@@ -679,3 +679,10 @@ iPhone 가로(844×390)에서 창 맨 위 `Add to library` 바로 사용 가능,
       (조합 이벤트를 흉내 낸 시험으로만 확인)
 - [ ] 새 빌드 설치 직후 비행기 모드에서 첫 실행이 되는지(사전 캐시 보강 확인)
 - [ ] iPad에서 마우스·트랙패드로 입력창의 글자를 드래그 선택하다 배경에서 손을 떼도 창이 유지되는지
+
+### 2026-10-05 — 해시 탭 문서(Bookshelf Study Guide) 수정 (빌드 `2026.10.05-hashtabs1`)
+
+- **증상**: `Bookshelf_Study_Guide_2026-10-05.html`을 열면 학습 계획·핵심 정리·책 목록 탭이 모두 반응하지 않음.
+- **원인 1 (Run 모드)**: `src/preview.js` 의 링크 클릭 처리기가 `#fragment` 링크를 `preventDefault()` 하고 스크롤만 했기 때문에 `location.hash` 가 바뀌지 않았고 `hashchange` 도 발생하지 않음. 이 문서의 탭은 `hashchange` 로 전환되므로 전부 멈춤. → 처리기가 주소의 해시를 갱신(`history.replaceState`)하고 `hashchange` 를 직접 발생시킨 뒤 스크롤하도록 수정.
+- **원인 2 (Read 모드)**: Read 는 문서의 스크립트를 모두 제거하므로 이런 문서는 본문이 빈 화면으로 보임. → 스크립트가 있는 문서를 Read 로 열면 "Run it" 안내 띠를 표시.
+- **확인**: Chromium 에서 실제 가져오기 → Run 으로 세 탭 전환, 본문 내 `.tablink`, 목차 `#p-3` 이동, 책 263권 목록 렌더링 확인. `npm test` 137건 통과. iPhone Safari 실기기 확인은 Pending.

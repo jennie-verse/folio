@@ -310,6 +310,12 @@ export async function render(ctx) {
        the rewrite inlined, so the frame still loads with no scripting at all.
        (Packages are Run-only in the UI per plan 6-4; this keeps Read correct
        for the day it is reachable.) */
+    if (!isPackage && (analysis.classicScripts.length || analysis.moduleScripts.length)) {
+      noticeHost.appendChild(el('div', { class: 'pv-note' }, [
+        el('span', { text: 'This document uses scripts to build its pages and tabs, which Read mode removes. ' }),
+        el('button', { class: 'primary', type: 'button', text: 'Run it', onclick: () => setMode('run') }),
+      ]));
+    }
     const session = preview.newSession();
     const readSource = isPackage
       ? pkg.materialize({ content: source, packageAssets: assets, entryPath: doc.entryPath || 'index.html' }, session, '', '').html
