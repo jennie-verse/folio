@@ -458,6 +458,11 @@ export async function render(ctx) {
     else { clear(stage); stage.appendChild(el('div', { class: 'empty' }, [el('p', { text: 'Run is off for this document.' })])); }
   } else if (isPackage) {
     await mountRun();
+  } else if (doc.runEnabled && (analysis.classicScripts.length || analysis.moduleScripts.length)) {
+    // Run was already allowed for this script-driven document, so reopen it
+    // working — Read would only show the blank, script-stripped page again.
+    mode = 'run';
+    await mountRun();
   } else {
     await mountRead();
   }

@@ -686,3 +686,9 @@ iPhone 가로(844×390)에서 창 맨 위 `Add to library` 바로 사용 가능,
 - **원인 1 (Run 모드)**: `src/preview.js` 의 링크 클릭 처리기가 `#fragment` 링크를 `preventDefault()` 하고 스크롤만 했기 때문에 `location.hash` 가 바뀌지 않았고 `hashchange` 도 발생하지 않음. 이 문서의 탭은 `hashchange` 로 전환되므로 전부 멈춤. → 처리기가 주소의 해시를 갱신(`history.replaceState`)하고 `hashchange` 를 직접 발생시킨 뒤 스크롤하도록 수정.
 - **원인 2 (Read 모드)**: Read 는 문서의 스크립트를 모두 제거하므로 이런 문서는 본문이 빈 화면으로 보임. → 스크립트가 있는 문서를 Read 로 열면 "Run it" 안내 띠를 표시.
 - **확인**: Chromium 에서 실제 가져오기 → Run 으로 세 탭 전환, 본문 내 `.tablink`, 목차 `#p-3` 이동, 책 263권 목록 렌더링 확인. `npm test` 137건 통과. iPhone Safari 실기기 확인은 Pending.
+
+### 2026-10-05 추가 검토 (빌드 `2026.10.05-hashtabs2`)
+
+- `#` 링크 처리: `replaceState` 가 막히거나 주소의 `#` 값이 바뀌지 않는 환경(WebKit 등)을 대비해 `location.hash` 대체 경로 추가.
+- 한 번 Run 을 허용한 스크립트 문서는 다시 열 때 바로 Run 으로 열림(Read 의 빈 화면 방지).
+- Chromium 재확인: 처음 열기(Read 안내 → Run), 세 탭, 본문 링크, 목차, 닫았다 다시 열기 모두 통과. `npm test` 137건·`test:syntax` 통과.
