@@ -84,7 +84,7 @@ const MULTI_EXPORT_MAX_BYTES = 5 * 1024 * 1024;
 
 /* ── routing ───────────────────────────────────────────────────────────── */
 
-const SPLIT_VIEW_QUERY = '(min-width:1024px) and (orientation:landscape)';
+const SPLIT_VIEW_QUERY = '(min-width:880px)';
 
 function paintLibraryToggle(split) {
   const button = $('#btnLibraryToggle');
@@ -101,7 +101,7 @@ function show(name) {
   ['library', 'viewer', 'settings'].forEach((screen) => {
     $(`#${screen}`).classList.toggle('hidden', screen !== name);
   });
-  // iPad landscape keeps the library rail beside the viewer unless the user
+  // A wide window (unfolded foldable, Mac) keeps the library rail beside the viewer unless the user
   // explicitly collapses it. The choice survives document and size changes
   // for the current app session.
   const split = name === 'viewer' && window.matchMedia(SPLIT_VIEW_QUERY).matches;

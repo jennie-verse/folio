@@ -692,3 +692,9 @@ iPhone 가로(844×390)에서 창 맨 위 `Add to library` 바로 사용 가능,
 - `#` 링크 처리: `replaceState` 가 막히거나 주소의 `#` 값이 바뀌지 않는 환경(WebKit 등)을 대비해 `location.hash` 대체 경로 추가.
 - 한 번 Run 을 허용한 스크립트 문서는 다시 열 때 바로 Run 으로 열림(Read 의 빈 화면 방지).
 - Chromium 재확인: 처음 열기(Read 안내 → Run), 세 탭, 본문 링크, 목차, 닫았다 다시 열기 모두 통과. `npm test` 137건·`test:syntax` 통과.
+
+### 2026-11-12 — 폴더블(iPhone Duo)·Mac 최적화 (빌드 `2026.11.12-foldable1`)
+
+- **변경**: 라이브러리 레일(분할 보기) 조건을 `iPad 가로(1024px+)`에서 **폭 880px 이상**(방향 무관)으로 변경(`SPLIT_VIEW_QUERY`와 CSS 동일). 설정 화면은 768px 이상에서 가운데 정렬, 880px 이상에서 2열 카드. Markdown/텍스트 본문은 넓은 화면에서 84ch 폭으로 제한. `overscroll-behavior:none`, `touch-action:manipulation`, 마우스·트랙패드(`hover:hover` + `pointer:fine`)에서만 버튼 hover 표시. 기존 `resize` 처리로 접기/펼치기 시 레일이 바로 켜지고 꺼짐.
+- **확인(Chromium, Playwright)**: 360×780, 840×760, 1000×700, 1440×900에서 가로 넘침 없음, 콘솔 오류 없음, 목록·뷰어·설정 스크린샷 확인. 문서를 연 채 폭을 360↔900으로 바꿔도 분할 보기가 정상 전환. `npm test` 138건·`test:syntax` 통과.
+- **미확인**: 실제 iPhone Duo 접기/펼치기 테스트는 사용자가 quill에서만 했고, 이 앱은 **실기기 확인 필요**.

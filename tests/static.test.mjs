@@ -738,3 +738,15 @@ test("the 50-document / 5MB multi-export guardrails are present and surfaced to 
   assert.match(app, /Select up to \$\{MULTI_EXPORT_MAX_DOCS\} documents/);
   assert.match(app, /Combined notes are too large/);
 });
+
+test("foldable/Mac layout: width-only split view, two-column settings, fine-pointer hover only", () => {
+  assert.match(appJs, /SPLIT_VIEW_QUERY = '\(min-width:880px\)'/);
+  assert.doesNotMatch(appJs, /orientation:landscape/);
+  assert.match(appCss, /@media \(min-width:880px\)\{\s*#app\.split\{flex-direction:row\}/);
+  assert.match(appCss, /#settings \.scroll\{display:grid;grid-template-columns:repeat\(2/);
+  assert.match(appCss, /@media \(hover:hover\) and \(pointer:fine\)/);
+  assert.match(appCss, /overscroll-behavior:none/);
+  assert.match(appCss, /touch-action:manipulation/);
+  assert.match(appJs, /window\.addEventListener\('resize'/);
+  assert.match(sw, /VERSION = '2026\.11\.12-foldable1'/);
+});

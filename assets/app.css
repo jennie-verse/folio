@@ -67,7 +67,9 @@ html[data-theme="dark"]{
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 
-html,body{height:100%}
+html,body{height:100%;overscroll-behavior:none}
+/* 더블탭 지연·확대 없이 바로 반응(핀치 확대는 그대로). */
+button,input,select,textarea,label,summary,a{touch-action:manipulation}
 body{
   margin:0;
   background:var(--bg);
@@ -566,8 +568,9 @@ html[data-theme="dark"] .toast button{color:var(--rose)}
 @media (min-width:768px){
   .scroll > .doclist,.continue,.scroll > .chiprow,.scroll > .folderbar,.scroll > .listinfo{max-width:720px;margin-left:auto;margin-right:auto}
 }
-/* iPad landscape — 320px library rail beside the viewer. */
-@media (min-width:1024px) and (orientation:landscape){
+/* Wide window (unfolded iPhone Duo, Mac) — 320px library rail beside the viewer.
+   Width only, never orientation; app.js SPLIT_VIEW_QUERY must stay identical. */
+@media (min-width:880px){
   #app.split{flex-direction:row}
   #app.split #library{flex:0 0 320px;border-right:1px solid var(--line)}
   #app.split #viewer{flex:1;min-width:0}
@@ -575,6 +578,23 @@ html[data-theme="dark"] .toast button{color:var(--rose)}
   #app.split.library-collapsed #library{display:none}
   #app.split.library-collapsed #viewer{flex:1 1 100%}
   #app.split .scroll > .doclist,#app.split .continue,#app.split .scroll > .chiprow,#app.split .scroll > .folderbar,#app.split .scroll > .listinfo{max-width:none}
+}
+
+/* Wide window: settings as a centered two-column card grid, capped reading width. */
+@media (min-width:768px){
+  #settings .scroll{max-width:760px;width:100%;margin-left:auto;margin-right:auto}
+  .doctext,pre.plain:not(.nowrap){max-width:84ch;margin-left:auto;margin-right:auto}
+}
+@media (min-width:880px){
+  #settings .scroll{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px;max-width:1000px;padding:4px 12px 12px}
+  #settings .scroll > .setgroup{margin:0}
+}
+
+/* Mouse/trackpad only (Mac); nothing depends on hover. */
+@media (hover:hover) and (pointer:fine){
+  button:not([disabled]):hover{background:var(--rose-tint)}
+  button.primary:not([disabled]):hover{filter:brightness(.96);background:var(--rose)}
+  .vbody{scrollbar-color:var(--rose) transparent}
 }
 
 @media (prefers-reduced-motion:reduce){

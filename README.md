@@ -1,6 +1,6 @@
 # folio
 
-A personal document library for iPhone and iPad. Text, Markdown, HTML, HTML
+A personal document library for iPhone (including foldable, phone-to-tablet widths), iPad and Mac Safari. Text, Markdown, HTML, HTML
 packages, PDF, CSV and images live in one place, open where you left off, and
 work offline. HTML documents can be run in an isolated sandbox.
 
