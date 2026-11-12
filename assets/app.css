@@ -565,7 +565,8 @@ html[data-theme="dark"] .toast button{color:var(--rose)}
 
 /* One 720px column for the list AND the chip rows above it, so the tabs, the
    open-folder bar and "Showing N of M" line up with the document rows. */
-@media (min-width:768px){
+/* Tier A, tablet portrait (unfolded Duo portrait 669x951, Mac): single-column centering only. */
+@media (min-width: 640px) and (min-height: 560px){
   .scroll > .doclist,.continue,.scroll > .chiprow,.scroll > .folderbar,.scroll > .listinfo{max-width:720px;margin-left:auto;margin-right:auto}
 }
 /* Wide window (unfolded iPhone Duo, Mac) — 320px library rail beside the viewer.
@@ -580,11 +581,14 @@ html[data-theme="dark"] .toast button{color:var(--rose)}
   #app.split .scroll > .doclist,#app.split .continue,#app.split .scroll > .chiprow,#app.split .scroll > .folderbar,#app.split .scroll > .listinfo{max-width:none}
 }
 
-/* Wide window: settings as a centered two-column card grid, capped reading width. */
-@media (min-width:768px){
+/* Tier A: settings centered, capped reading width, bottom sheets become centered dialogs. */
+@media (min-width: 640px) and (min-height: 560px){
   #settings .scroll{max-width:760px;width:100%;margin-left:auto;margin-right:auto}
   .doctext,pre.plain:not(.nowrap){max-width:84ch;margin-left:auto;margin-right:auto}
+  .overlay{align-items:center;padding:calc(var(--safe-t) + 16px) 16px calc(var(--safe-b) + 16px)}
+  .sheet{border-radius:var(--radius);max-width:560px;max-height:min(82vh,calc(100vh - var(--safe-t) - var(--safe-b) - 32px))}
 }
+/* Tier B: two-column settings */
 @media (min-width:880px){
   #settings .scroll{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px;max-width:1000px;padding:4px 12px 12px}
   #settings .scroll > .setgroup{margin:0}
