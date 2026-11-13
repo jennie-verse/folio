@@ -750,5 +750,5 @@ test("foldable/Mac layout (tier A + tier B): width-only split view, two-column s
   assert.match(appCss, /overscroll-behavior:none/);
   assert.match(appCss, /touch-action:manipulation/);
   assert.match(appJs, /window\.addEventListener\('resize'/);
-  assert.match(sw, /VERSION = '2026\.11\.12-foldable3'/);
+  assert.match(sw, /VERSION = '2026\.11\.12-foldable4'/);
 });

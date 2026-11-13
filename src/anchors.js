@@ -57,11 +57,37 @@ export function assignHeadingIds(root) {
   return map;
 }
 
-/** Heading for a link inside this document, or null. Only headings that were
-    registered for this document can be returned. */
-export function resolveFragment(href, map) {
-  const slug = fragmentToSlug(href);
-  return slug && map.has(slug) ? map.get(slug) : null;
+/** Record authored id/name targets (literal value -> element, first one wins)
+    BEFORE their attributes are stripped, so hand-written anchors such as
+    `<a id="fn1">` or `<h2 id="custom">` still work as link targets without
+    the document ever owning a real DOM id. */
+export function collectAuthoredTargets(root) {
+  const map = new Map();
+  root.querySelectorAll('[id],[name]').forEach((node) => {
+    for (const attr of ['id', 'name']) {
+      const value = node.getAttribute(attr);
+      if (value && !map.has(value)) map.set(value, node);
+    }
+  });
+  return map;
+}
+
+/** Target for a link inside this document, or null. Precedence (documented
+    contract): 1) an authored id/name equal to the literal fragment (raw, then
+    percent-decoded), 2) a generated heading slug. Only elements registered
+    for this document can be returned; the DOM is never searched. */
+export function resolveFragment(href, registry) {
+  const raw = String(href ?? '');
+  if (!raw.startsWith('#') || raw.length < 2) return null;
+  const authored = registry.authored || new Map();
+  const headings = registry.headings || new Map();
+  const literal = raw.slice(1);
+  if (authored.has(literal)) return authored.get(literal);
+  let decoded = null;
+  try { decoded = decodeURIComponent(literal); } catch { /* fall through to slug */ }
+  if (decoded && authored.has(decoded)) return authored.get(decoded);
+  const slug = fragmentToSlug(raw);
+  return slug && headings.has(slug) ? headings.get(slug) : null;
 }
 
 /** Scroll `body` so `target` sits just under its top edge. */
