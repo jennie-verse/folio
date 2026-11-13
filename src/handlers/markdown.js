@@ -15,6 +15,7 @@ import { el, clear, toast, customSheet } from '../ui.js';
 import { decodeBlob } from './encoding.js';
 import { Finder } from '../find.js';
 import * as diagram from '../diagram.js';
+import { assignHeadingIds, resolveFragment, scrollToHeading } from '../anchors.js';
 
 export const kinds = ['markdown'];
 
@@ -332,6 +333,14 @@ export async function render(ctx) {
   raw.textContent = source;
   const finder = new Finder(article);
   const observers = [];
+  let headingMap = new Map();
+  article.addEventListener('click', (event) => {
+    const anchor = event.target instanceof Element ? event.target.closest('a[href^="#"]') : null;
+    if (!anchor || !article.contains(anchor)) return;
+    event.preventDefault();   // never change the URL or leave the document
+    const target = resolveFragment(anchor.getAttribute('href'), headingMap);
+    if (target && article.contains(target)) scrollToHeading(body, target);
+  });
 
   function paintRendered() {
     observers.forEach((observer) => observer.disconnect());
@@ -364,7 +373,11 @@ export async function render(ctx) {
         anchor.removeAttribute('href');
       }
     });
+    // Authored id/name attributes never survive: they could shadow app
+    // elements (DOM clobbering). Heading ids are generated, with a prefix.
+    fragment.querySelectorAll('[id],[name]').forEach((node) => { node.removeAttribute('id'); node.removeAttribute('name'); });
     article.appendChild(fragment);
+    headingMap = assignHeadingIds(article);
 
     // Every mermaid block is pulled out (into a diagram container) before
     // this query runs, whether or not it will end up parsing successfully —
