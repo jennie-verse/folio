@@ -750,5 +750,9 @@ test("foldable/Mac layout (tier A + tier B): width-only split view, two-column s
   assert.match(appCss, /overscroll-behavior:none/);
   assert.match(appCss, /touch-action:manipulation/);
   assert.match(appJs, /window\.addEventListener\('resize'/);
-  assert.match(sw, /VERSION = '2026\.11\.12-foldable4'/);
+  assert.match(sw, /VERSION = '2026\.11\.17-duocheck1'/);
+});
+
+test("two-column settings (tier B) keep the landscape side and bottom safe-area insets", () => {
+  assert.match(appCss, /#settings \.scroll\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);[^}]*padding:4px calc\(var\(--safe-r\) \+ 12px\) calc\(var\(--safe-b\) \+ 12px\) calc\(var\(--safe-l\) \+ 12px\)\}/);
 });

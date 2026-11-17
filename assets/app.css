@@ -590,7 +590,7 @@ html[data-theme="dark"] .toast button{color:var(--rose)}
 }
 /* Tier B: two-column settings */
 @media (min-width:880px){
-  #settings .scroll{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px;max-width:1000px;padding:4px 12px 12px}
+  #settings .scroll{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px;max-width:1000px;padding:4px calc(var(--safe-r) + 12px) calc(var(--safe-b) + 12px) calc(var(--safe-l) + 12px)}
   #settings .scroll > .setgroup{margin:0}
 }
 
