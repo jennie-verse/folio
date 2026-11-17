@@ -750,9 +750,21 @@ test("foldable/Mac layout (tier A + tier B): width-only split view, two-column s
   assert.match(appCss, /overscroll-behavior:none/);
   assert.match(appCss, /touch-action:manipulation/);
   assert.match(appJs, /window\.addEventListener\('resize'/);
-  assert.match(sw, /VERSION = '2026\.11\.17-duocheck1'/);
+  assert.match(sw, /VERSION = '2026\.11\.17-duocheck2'/);
 });
 
 test("two-column settings (tier B) keep the landscape side and bottom safe-area insets", () => {
   assert.match(appCss, /#settings \.scroll\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);[^}]*padding:4px calc\(var\(--safe-r\) \+ 12px\) calc\(var\(--safe-b\) \+ 12px\) calc\(var\(--safe-l\) \+ 12px\)\}/);
+});
+
+test("folding/unfolding keeps the reading place of text and Markdown (ratio remembered while reading, restored after the new layout settles)", () => {
+  assert.match(appJs, /const readableKind = \(\) => \['text', 'markdown'\]\.includes\(State\.current\?\.kind\);/);
+  assert.match(appJs, /\$\('#viewerBody'\)\.addEventListener\('scroll', \(\) => \{\s*if \(resizeSettling \|\| !readableKind\(\)\) return;/);
+  assert.match(appJs, /body\.scrollTop = Math\.min\(max, Math\.max\(0, readRatio \* max\)\);/);
+  assert.match(appJs, /readRatioDoc = State\.current\?\.id \?\? null;/);
+  assert.match(appJs, /readRatioDoc !== \(State\.current\?\.id \?\? null\)/);
+  assert.match(appJs, /window\.addEventListener\('orientationchange', keepReadingPlace\);/);
+  assert.match(appJs, /window\.addEventListener\('resize', keepReadingPlace\);/);
+  // the old handlers that only re-showed the viewer must be gone
+  assert.doesNotMatch(appJs, /window\.addEventListener\('resize', \(\) => \{ if \(State\.current\) show\('viewer'\); \}\);/);
 });

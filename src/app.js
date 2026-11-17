@@ -2618,8 +2618,36 @@ function wire() {
   $('#btnDeleteAll').addEventListener('click', deleteAll);
   $('#btnLicences').addEventListener('click', showLicences);
 
-  window.addEventListener('orientationchange', () => { if (State.current) show('viewer'); });
-  window.addEventListener('resize', () => { if (State.current) show('viewer'); });
+  // Keep the reading place when the device is folded or unfolded. Text and Markdown re-wrap when the width
+  // changes, so the old scrollTop (px) would point somewhere else in the document. While the user reads we
+  // remember the position as a fraction of the document (the same ratio "continue reading" saves) and put it back
+  // once the new layout has settled. Scroll events caused by that restore are not user scrolls.
+  let readRatio = null;
+  let readRatioDoc = null; // the ratio belongs to this document; a different one (opened later) must not inherit it
+  let resizeSettling = false;
+  let settleTimer = 0;
+  const readableKind = () => ['text', 'markdown'].includes(State.current?.kind);
+  $('#viewerBody').addEventListener('scroll', () => {
+    if (resizeSettling || !readableKind()) return;
+    const body = $('#viewerBody');
+    const max = body.scrollHeight - body.clientHeight;
+    readRatio = max > 0 ? Math.min(1, body.scrollTop / max) : null;
+    readRatioDoc = State.current?.id ?? null;
+  }, { passive: true });
+  const keepReadingPlace = () => {
+    if (State.current) show('viewer');
+    if (readRatio === null || readRatioDoc !== (State.current?.id ?? null) || !readableKind()) return;
+    resizeSettling = true;
+    clearTimeout(settleTimer);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const body = $('#viewerBody');
+      const max = Math.max(0, body.scrollHeight - body.clientHeight);
+      body.scrollTop = Math.min(max, Math.max(0, readRatio * max));
+      settleTimer = setTimeout(() => { resizeSettling = false; }, 150);
+    }));
+  };
+  window.addEventListener('orientationchange', keepReadingPlace);
+  window.addEventListener('resize', keepReadingPlace);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) readingSessions.stop();
     else if (State.current && !State.transient) readingSessions.start(readingSessionItem(State.current));
